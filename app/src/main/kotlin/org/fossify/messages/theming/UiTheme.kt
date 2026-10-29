@@ -122,18 +122,119 @@ object UiTheme {
         "fab" to R.color.samsung_send,
         "fab_icon" to android.R.color.white
     )
+    /** In-memory theme transaction scoped to Theme Studio. No preference writes
+     * take place during editing, including switching or naming themes. */
+    private data class StudioSession(
+        var activeId:String,
+        val working:MutableMap<String,JSONObject> = linkedMapOf(),
+        val saved:MutableMap<String,JSONObject> = linkedMapOf(),
+        val names:MutableList<Pair<String,String>> = mutableListOf(),
+        val deleted:MutableSet<String> = mutableSetOf()
+    )
+    private var studio:StudioSession?=null
+    private fun session(ctx:Context):StudioSession? =
+        if(ctx is ThemeEditorActivity) studio else null
+    private fun persistedActive(ctx:Context)=prefs(ctx).getString(ACTIVE,"oneui") ?: "oneui"
+    private fun copy(obj:JSONObject)=JSONObject(obj.toString())
+    private fun savedTheme(ctx:Context,id:String):JSONObject =
+        if(id in presets) JSONObject().put("base",id) else stored(ctx,id)
+    private fun loadSessionTheme(ctx:Context,id:String):JSONObject {
+        val s=session(ctx) ?: return savedTheme(ctx,id)
+        if(id !in s.working) {
+            val data=savedTheme(ctx,id)
+            s.saved[id]=copy(data)
+            s.working[id]=copy(data)
+        }
+        return s.working.getValue(id)
+    }
+    fun beginStudio(ctx:Context,restored:String?=null) {
+        val recovered=runCatching {
+            if(restored.isNullOrBlank())null else {
+                val j=JSONObject(restored)
+                val result=StudioSession(j.getString("active"))
+                fun readObjects(key:String,target:MutableMap<String,JSONObject>) {
+                    val data=j.getJSONObject(key)
+                    for(k in data.keys())target[k]=copy(data.getJSONObject(k))
+                }
+                readObjects("working",result.working)
+                readObjects("saved",result.saved)
+                val labels=j.getJSONArray("names")
+                for(i in 0 until labels.length()) {
+                    val pair=labels.getJSONObject(i)
+                    result.names.add(pair.getString("id") to pair.getString("name"))
+                }
+                val deleted=j.getJSONArray("deleted")
+                for(i in 0 until deleted.length())result.deleted.add(deleted.getString(i))
+                result
+            }
+        }.getOrNull()
+        studio=recovered ?: StudioSession(persistedActive(ctx),names=persistedNamed(ctx).toMutableList())
+    }
+    fun studioState(ctx:Context):String {
+        val s=session(ctx) ?: return ""
+        val j=JSONObject().put("active",s.activeId)
+        for((label,values) in listOf("working" to s.working,"saved" to s.saved)) {
+            val o=JSONObject()
+            values.forEach{(key,value)->o.put(key,copy(value))}
+            j.put(label,o)
+        }
+        val names=JSONArray()
+        s.names.forEach{(id,name)->names.put(JSONObject().put("id",id).put("name",name))}
+        val deleted=JSONArray()
+        s.deleted.forEach{deleted.put(it)}
+        return j.put("names",names).put("deleted",deleted).toString()
+    }
+    fun commitStudio(ctx:Context) {
+        val s=studio ?: return
+        val editor=prefs(ctx).edit().putString(ACTIVE,s.activeId)
+        s.working.forEach { (id,value) ->
+            if(id !in presets && id !in s.deleted && (value.toString()!=s.saved[id]?.toString() || !prefs(ctx).contains("data_$id")))
+                editor.putString("data_$id",value.toString())
+        }
+        s.deleted.forEach { editor.remove("data_$it") }
+        val names=JSONArray()
+        s.names.forEach{(id,name)->names.put(JSONObject().put("id",id).put("name",name))}
+        editor.putString(NAMES,names.toString())
+        check(editor.commit()) {"Could not save Theme Studio edits"}
+        studio=null
+    }
+    /** Reset to the saved property value, not the built-in preset value. */
+    private fun baseline(ctx:Context):JSONObject {
+        val s=session(ctx) ?: return savedTheme(ctx,active(ctx))
+        loadSessionTheme(ctx,s.activeId)
+        return s.saved.getValue(s.activeId)
+    }
+    private fun baselineMode(ctx:Context):JSONObject =
+        baseline(ctx).optJSONObject(if(isDark(ctx))"dark" else "light") ?: JSONObject()
+    private fun baselineBase(ctx:Context):String =
+        baseline(ctx).optString("base","oneui").takeIf{it in presets} ?: "oneui"
+    fun savedColor(ctx:Context,key:String):Int {
+        val values=baselineMode(ctx)
+        return if(values.has("c_$key"))values.optInt("c_$key") else presetColor(ctx,baselineBase(ctx),key)
+    }
+    fun savedMetric(ctx:Context,key:String):Int {
+        val values=baselineMode(ctx)
+        return if(values.has("m_$key"))values.optInt("m_$key").coerceIn(minMetric(key),140)
+            else presetMetric(baselineBase(ctx),key)
+    }
+    fun savedRadius(ctx:Context,key:String):Int {
+        val values=baselineMode(ctx)
+        return if(values.has("r_$key"))values.optInt("r_$key").coerceIn(0,100)
+            else presetRadius(baselineBase(ctx),key)
+    }
     private fun prefs(ctx:Context)=ctx.getSharedPreferences(PREF,Context.MODE_PRIVATE)
     fun isDark(ctx:Context)=
         ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
             Configuration.UI_MODE_NIGHT_YES
-    fun active(ctx:Context)=prefs(ctx).getString(ACTIVE,"oneui") ?: "oneui"
+    fun active(ctx:Context)=session(ctx)?.activeId ?: persistedActive(ctx)
     fun title(ctx:Context):String = when(val id=active(ctx)){
         DRAFT -> "Unsaved edits"
         in presets -> presets[id] ?: id
         else -> named(ctx).firstOrNull{it.first==id}?.second ?: "Custom theme"
     }
-    fun hasDraft(ctx:Context)=prefs(ctx).contains("data_$DRAFT")
-    fun named(ctx:Context):List<Pair<String,String>>{
+    fun hasDraft(ctx:Context)=session(ctx)?.working?.containsKey(DRAFT)==true || prefs(ctx).contains("data_$DRAFT")
+    fun named(ctx:Context):List<Pair<String,String>> = session(ctx)?.names?.toList() ?: persistedNamed(ctx)
+    private fun persistedNamed(ctx:Context):List<Pair<String,String>>{
         val arr=try{JSONArray(prefs(ctx).getString(NAMES,"[]") ?: "[]")}catch(_:Exception){JSONArray()}
         return (0 until arr.length()).mapNotNull{
             val o=arr.optJSONObject(it)
@@ -146,7 +247,7 @@ object UiTheme {
         try{JSONObject(prefs(ctx).getString("data_$id","{}") ?: "{}")}catch(_:Exception){JSONObject()}
     private fun root(ctx:Context):JSONObject {
         val id=active(ctx)
-        return if(id in presets) JSONObject().put("base",id) else stored(ctx,id)
+        return loadSessionTheme(ctx,id)
     }
     private fun base(ctx:Context)=root(ctx).optString("base","oneui").let{
         if(it in presets)it else "oneui"
@@ -268,12 +369,22 @@ object UiTheme {
         val p=prefs(ctx)
         val current=active(ctx)
         val id=if(current in presets) DRAFT else current
+        val preview=session(ctx)
         val obj=if(id==DRAFT && current in presets)
-            JSONObject().put("base",current) else stored(ctx,id)
+            JSONObject().put("base",current) else
+            if(preview!=null) loadSessionTheme(ctx,id) else stored(ctx,id)
         val mode=if(isDark(ctx))"dark" else "light"
         val values=obj.optJSONObject(mode) ?: JSONObject().also{obj.put(mode,it)}
         update(values)
-        p.edit().putString("data_$id",obj.toString()).putString(ACTIVE,id).apply()
+        if(preview!=null){
+            if(current in presets) {
+                // A new draft starts from the currently chosen preset, even if
+                // an older saved draft happens to exist.
+                preview.saved[id]=JSONObject().put("base",current)
+            }
+            preview.working[id]=obj
+            preview.activeId=id
+        } else p.edit().putString("data_$id",obj.toString()).putString(ACTIVE,id).apply()
     }
     fun setColor(ctx:Context,key:String,value:Int){
         require(key in colors);edit(ctx){it.put("c_$key",value)}
@@ -287,16 +398,25 @@ object UiTheme {
     fun switch(ctx:Context,id:String){
         require(id in presets || id==DRAFT && prefs(ctx).contains("data_$DRAFT")
             || named(ctx).any{it.first==id})
-        prefs(ctx).edit().putString(ACTIVE,id).apply()
+        val preview=session(ctx)
+        if(preview!=null){
+            loadSessionTheme(ctx,id)
+            preview.activeId=id
+        } else prefs(ctx).edit().putString(ACTIVE,id).apply()
     }
     fun saveAs(ctx:Context,name:String):String {
         val n=name.trim().take(60)
         require(n.isNotBlank())
         require(named(ctx).none{it.second.equals(n,ignoreCase=true)})
         val id="user_"+UUID.randomUUID().toString()
-        val source=when(val active=active(ctx)){
-            in presets -> JSONObject().put("base",active)
-            else -> stored(ctx,active)
+        val source=loadSessionTheme(ctx,active(ctx))
+        val preview=session(ctx)
+        if(preview!=null){
+            preview.saved[id]=copy(source)
+            preview.working[id]=copy(source)
+            preview.names.add(id to n)
+            preview.activeId=id
+            return id
         }
         val arr=JSONArray()
         named(ctx).forEach { (existing,label)->arr.put(JSONObject().put("id",existing).put("name",label)) }
@@ -307,6 +427,13 @@ object UiTheme {
     }
     fun delete(ctx:Context,id:String){
         require(id !in presets && id != DRAFT)
+        session(ctx)?.let { preview ->
+            preview.names.removeAll { it.first==id }
+            preview.deleted.add(id)
+            preview.working.remove(id)
+            if(preview.activeId==id)preview.activeId="oneui"
+            return
+        }
         val arr=JSONArray()
         named(ctx).filterNot{it.first==id}.forEach{(key,label)->
             arr.put(JSONObject().put("id",key).put("name",label))
@@ -316,11 +443,19 @@ object UiTheme {
         e.apply()
     }
     fun resetCurrentMode(ctx:Context){
-        val active=active(ctx)
-        if(active in presets)return
-        val obj=stored(ctx,active)
-        obj.remove(if(isDark(ctx))"dark" else "light")
-        prefs(ctx).edit().putString("data_$active",obj.toString()).apply()
+        val id=active(ctx)
+        if(id in presets)return
+        val mode=if(isDark(ctx))"dark" else "light"
+        session(ctx)?.let { preview ->
+            val baseline=baseline(ctx)
+            val current=loadSessionTheme(ctx,id)
+            if(baseline.has(mode))current.put(mode,copy(baseline.getJSONObject(mode)))
+            else current.remove(mode)
+            return
+        }
+        val obj=stored(ctx,id)
+        obj.remove(mode)
+        prefs(ctx).edit().putString("data_$id",obj.toString()).apply()
     }
     /** Shared coordinate mapping for the actual inbox and the Theme Studio preview. */
     fun fabPosition(ctx:Context, width:Int, height:Int, buttonWidth:Int, buttonHeight:Int):Pair<Float,Float>{

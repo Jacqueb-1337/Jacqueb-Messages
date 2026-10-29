@@ -31,6 +31,8 @@ class SafeActivity: SimpleActivity() {
     private lateinit var main: LinearLayout
     private var launchingThread=false
     private var deviceAuthPending=false
+    private var safeOperationRunning=false
+    private var migrationConfirmed=false
     private val accent by lazy { UiTheme.color(this,"accent") }
     private fun dp(n:Int)=(resources.displayMetrics.density*n).toInt()
     private fun label(t:String,size:Float=16f):TextView = TextView(this).apply {
@@ -65,48 +67,132 @@ class SafeActivity: SimpleActivity() {
         if(!SafeStore.configured(this)) return setup()
         if(!SafeStore.unlocked()) return locked()
         val pending=intent.getLongExtra("safe_add_thread",-1L)
-        if(pending>0 && !SafeStore.isSafe(this,pending)) {
-            intent.removeExtra("safe_add_thread")
-            SafeStore.move(this,pending,true)
-            msg("Moved conversation to Safe")
-        }
-        main.addView(label("Private conversations",18f))
-        action("Notification privacy: ${if(SafeStore.notificationMode(this)==SafeStore.ALERT_OFF) "Off" else "Redacted"}") {
-            val values=arrayOf("Notifications off","Show generic notification only")
-            AlertDialog.Builder(this).setTitle("Safe notifications")
-                .setSingleChoiceItems(values,if(SafeStore.notificationMode(this)==SafeStore.ALERT_OFF)0 else 1) {d,which->
-                    SafeStore.setNotificationMode(this,if(which==0) SafeStore.ALERT_OFF else SafeStore.ALERT_REDACTED)
-                    d.dismiss();render()
-                }.setNegativeButton("Cancel",null).create().also { secureDialog ->
-                    secureDialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    secureDialog.show()
+        if (pending > 0 && !safeOperationRunning && !SafeVault.exists(this,pending)) {
+            if(!migrationConfirmed) {
+                AlertDialog.Builder(this)
+                    .setTitle("Encrypt and remove SMS from Android?")
+                    .setMessage("Safe will move all SMS in this conversation into an encrypted app-private archive and delete the originals from Android's SMS database. The encryption key is device-bound. Clearing this app's data, uninstalling, or losing the phone can permanently lose these messages. MMS is not supported yet. Restore the conversation before changing phones. Continue?")
+                    .setNegativeButton("Cancel") { _,_ ->
+                        intent.removeExtra("safe_add_thread")
+                        render()
+                    }
+                    .setPositiveButton("Encrypt and remove") { _,_ ->
+                        migrationConfirmed=true
+                        render()
+                    }.show().window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                return
+            }
+            safeOperationRunning = true
+            main.addView(label("Encrypting and verifying messages before removal...",14f))
+            ensureBackgroundThread {
+                val error = runCatching { SafeStore.move(this,pending,true) }.exceptionOrNull()
+                runOnUiThread {
+                    safeOperationRunning = false
+                    intent.removeExtra("safe_add_thread")
+                    if (error != null) {
+                        AlertDialog.Builder(this)
+                            .setTitle("Messages were not moved")
+                            .setMessage(error.message ?: "Safe could not finish. The encrypted recovery archive is retained if one was created.")
+                            .setPositiveButton("OK",null)
+                            .show()
+                    } else msg("Moved conversation to encrypted Safe")
+                    render()
                 }
+            }
+            return
+        }
+        if (pending > 0) intent.removeExtra("safe_add_thread")
+        main.addView(label("Encrypted private conversations",18f))
+        action("Notification privacy: ${if(SafeStore.notificationMode(this)==SafeStore.ALERT_OFF) "Off" else "Redacted"}") {
+            AlertDialog.Builder(this).setTitle("Safe notifications")
+                .setSingleChoiceItems(arrayOf("Notifications off","Generic notification only"),
+                    if(SafeStore.notificationMode(this)==SafeStore.ALERT_OFF) 0 else 1) { dialog,which ->
+                    SafeStore.setNotificationMode(this,if(which==0) SafeStore.ALERT_OFF else SafeStore.ALERT_REDACTED)
+                    dialog.dismiss()
+                    render()
+                }.setNegativeButton("Cancel",null).show()
         }
         action("Lock Safe now") { SafeStore.lock();render() }
-        main.addView(label("Conversations moved to Safe are hidden from the normal inbox and app search. Other SMS apps with permission can still read Android's shared message database.",12f))
+        main.addView(label("SMS stored here is encrypted outside Android's shared SMS database. MMS stays in the normal database until lossless MMS migration is available. New incoming SMS from archived senders are routed here when Messages handles delivery. Other privileged applications may still observe SMS delivery.",12f))
         ensureBackgroundThread {
-            val ids=SafeStore.safeThreads(this)
-            val all=try { conversationsDB.getNonArchived()+conversationsDB.getAllArchived() } catch (_:Exception) {emptyList()}
-            val matches=all.filter { it.threadId in ids }.sortedByDescending { it.date }
+            val ids = SafeStore.safeThreads(this)
+            val entries = ids.sorted().map { id ->
+                val archive = runCatching {
+                    if (SafeVault.exists(this,id)) SafeVault.read(this,id) else null
+                }.getOrNull()
+                id to archive
+            }
             runOnUiThread {
-                if(isFinishing || isDestroyed || !SafeStore.unlocked())return@runOnUiThread
-                main.addView(label(if(matches.isEmpty()) "No conversations in Safe yet. Move one from its avatar menu in the inbox." else "${matches.size} private conversations",14f))
-                matches.forEach {conv ->
-                    action(conv.title) {
-                        if(!SafeStore.unlocked()) {render();return@action}
-                        launchingThread=true
-                        startActivity(Intent(this,ThreadActivity::class.java).apply {
-                            putExtra(THREAD_ID,conv.threadId);putExtra(THREAD_TITLE,conv.title)
-                        })
-                    }
-                    action("Remove ${conv.title} from Safe") {
-                        AlertDialog.Builder(this).setTitle("Move out of Safe?")
-                            .setMessage("This conversation will reappear in your regular inbox.")
-                            .setNegativeButton("Cancel",null)
-                            .setPositiveButton("Move") { _,_ -> SafeStore.move(this,conv.threadId,false);render() }.create().also { secureDialog ->
-                    secureDialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    secureDialog.show()
-                }
+                if(isFinishing || isDestroyed || !SafeStore.unlocked()) return@runOnUiThread
+                main.addView(label(if(entries.isEmpty()) "No encrypted conversations yet. Move an SMS-only conversation from the inbox avatar menu." else "${entries.size} Safe conversations",14f))
+                entries.forEach { (id,archive) ->
+                    if (archive == null) {
+                        if(!SafeVault.exists(this,id)) {
+                            // Upgrade the alpha Safe UI-only hiding state explicitly.
+                            action("Thread $id: Encrypt legacy Safe conversation") {
+                                AlertDialog.Builder(this)
+                                    .setTitle("Encrypt existing Safe messages?")
+                                    .setMessage("These messages were hidden by the older Safe version, but remain readable in Android's shared SMS database. Encrypting will verify a private archive before removing the original SMS. Do not do this without a separate backup. MMS cannot be migrated yet.")
+                                    .setNegativeButton("Cancel",null)
+                                    .setPositiveButton("Encrypt") { _,_ ->
+                                        if(!SafeStore.unlocked()) {render();return@setPositiveButton}
+                                        safeOperationRunning=true
+                                        ensureBackgroundThread {
+                                            val error=runCatching{SafeStore.move(this,id,true)}.exceptionOrNull()
+                                            runOnUiThread{
+                                                safeOperationRunning=false
+                                                if(error!=null) AlertDialog.Builder(this)
+                                                    .setTitle("Migration incomplete")
+                                                    .setMessage(error.message ?: "Existing SMS were preserved or the encrypted recovery archive was retained.")
+                                                    .setPositiveButton("OK",null).show()
+                                                else msg("Legacy Safe messages encrypted")
+                                                render()
+                                            }
+                                        }
+                                    }.show().window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                            }
+                        } else {
+                            action("Thread $id: Encrypted archive needs recovery") {
+                                msg("Cannot decrypt this archive. No messages were deleted.")
+                            }
+                        }
+                    } else {
+                        val address = archive.messages.firstOrNull()?.address ?: "Conversation $id"
+                        action("$address  (${archive.messages.size} SMS)") {
+                            if (!SafeStore.unlocked()) {render();return@action}
+                            // Display from decrypted app-private data, not Telephony.
+                            val text = archive.messages.sortedBy { it.date }.joinToString("\n\n") { message ->
+                                val sender = if(message.type==android.provider.Telephony.Sms.MESSAGE_TYPE_SENT) "You" else message.address
+                                "$sender: ${message.body.orEmpty()}"
+                            }
+                            val shown = text.take(20000)
+                            AlertDialog.Builder(this)
+                                .setTitle(address)
+                                .setMessage(shown + if(text.length>shown.length) "\n\n(Older messages truncated in this preview)" else "")
+                                .setPositiveButton("Close",null)
+                                .show().window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                        action("Restore $address to regular messages") {
+                            AlertDialog.Builder(this).setTitle("Restore messages?")
+                                .setMessage("Restoring will place these SMS back in Android's shared database, where other authorized apps can read them.")
+                                .setNegativeButton("Cancel",null)
+                                .setPositiveButton("Restore") { _,_ ->
+                                    if (!SafeStore.unlocked()) {render();return@setPositiveButton}
+                                    safeOperationRunning=true
+                                    ensureBackgroundThread {
+                                        val error=runCatching { SafeStore.move(this,id,false) }.exceptionOrNull()
+                                        runOnUiThread {
+                                            safeOperationRunning=false
+                                            if(error!=null) AlertDialog.Builder(this)
+                                                .setTitle("Restore not completed")
+                                                .setMessage(error.message ?: "Encrypted archive retained for recovery.")
+                                                .setPositiveButton("OK",null).show()
+                                            else msg("Messages restored")
+                                            render()
+                                        }
+                                    }
+                                }.show().window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
                     }
                 }
             }
@@ -114,7 +200,7 @@ class SafeActivity: SimpleActivity() {
     }
     private fun setup() {
         main.addView(label("Choose how to unlock Safe",20f))
-        main.addView(label("An independent backup unlock method is required. Safe protects the Messages interface, not the shared Android SMS database.",13f))
+        main.addView(label("An independent backup unlock method is required. SMS-only conversations can be encrypted and moved out of Android's shared SMS database. MMS migration is not yet available.",13f))
         val types=arrayOf("Android screen lock / biometrics","App PIN (6–12 digits)","Pattern")
         AlertDialog.Builder(this).setTitle("Set primary lock")
             .setItems(types) { _,i ->

@@ -1,6 +1,8 @@
 package org.fossify.messages.safe
 
 import android.content.Context
+import org.fossify.messages.extensions.messagesDB
+import org.fossify.messages.extensions.conversationsDB
 import android.os.SystemClock
 import android.util.Base64
 import java.security.MessageDigest
@@ -8,8 +10,8 @@ import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
-/** Private UI partition of the Android SMS provider, not encrypted SMS storage.
- * No message bodies, credentials or unlock secrets are exported in backups. */
+/** Safe UI access gate and conversation membership. AES-GCM message payloads
+ * are stored separately in SafeVault, never exported in preferences backups. */
 object SafeStore {
     private const val PREF = "messages_private_safe_v1"
     const val LOCK_DEVICE = "device"
@@ -31,14 +33,33 @@ object SafeStore {
         prefs(ctx).edit().putString("alerts",mode).apply()
     }
     fun isSafe(ctx: Context,threadId: Long):Boolean =
-        threadId>0 && prefs(ctx).getStringSet("threads",emptySet())?.contains(threadId.toString())==true
+        threadId>0 && (prefs(ctx).getStringSet("threads",emptySet())?.contains(threadId.toString())==true
+            || SafeVault.exists(ctx,threadId))
     fun safeThreads(ctx: Context):Set<Long> =
-        prefs(ctx).getStringSet("threads",emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+        (prefs(ctx).getStringSet("threads",emptySet()).orEmpty().mapNotNull { it.toLongOrNull() } +
+        SafeVault.archiveIds(ctx)).toSet()
     @Synchronized fun move(ctx: Context,id:Long,into:Boolean) {
         require(id>0 && configured(ctx) && unlocked())
         val current=prefs(ctx).getStringSet("threads",emptySet()).orEmpty().toMutableSet()
-        if(into) current.add(id.toString()) else current.remove(id.toString())
+        // A legacy Safe entry may still live in the public provider. Require
+        // explicit migration; never pretend it is encrypted/private.
+        if(into) {
+            if(!SafeVault.exists(ctx,id)) SafeVault.capture(ctx,id)
+            current.add(id.toString())
+        } else {
+            if(SafeVault.exists(ctx,id)) SafeVault.restore(ctx,id)
+            current.remove(id.toString())
+        }
         check(prefs(ctx).edit().putStringSet("threads",current).commit())
+        if(!into && SafeVault.exists(ctx,id)) SafeVault.finalizeRestore(ctx,id)
+        if(into) {
+            // Android Telephony is no longer holding the SMS. Remove app-private
+            // unencrypted Room cache copies as well, including thread snippets.
+            // The AES-GCM archive is preserved before this cleanup runs.
+            ctx.messagesDB.deleteThreadMessages(id)
+            ctx.conversationsDB.deleteThreadId(id)
+            org.fossify.messages.search.SemanticIndex.removeThread(ctx,id)
+        } else org.fossify.messages.search.SemanticIndexWorker.schedule(ctx)
         if(into) {
             (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager)
                 .cancel(id.hashCode())

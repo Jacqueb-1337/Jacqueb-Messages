@@ -88,10 +88,18 @@ class ThemeEditorActivity: AppCompatActivity() {
         // Android 15/16 enforce edge-to-edge even for older themes.
         WindowCompat.setDecorFitsSystemWindows(window,false)
         page=savedInstanceState?.getInt("page")?:0
+        UiTheme.beginStudio(this,savedInstanceState?.getString("theme_studio_session"))
         render()
     }
     override fun onSaveInstanceState(state:Bundle){
-        super.onSaveInstanceState(state);state.putInt("page",page)
+        state.putInt("page",page)
+        state.putString("theme_studio_session",UiTheme.studioState(this))
+        super.onSaveInstanceState(state)
+    }
+    override fun finish() {
+        // Commit all preview edits as one transaction only on editor exit.
+        UiTheme.commitStudio(this)
+        super.finish()
     }
     private fun render(){
         window.statusBarColor=c("surface")
@@ -126,7 +134,7 @@ class ThemeEditorActivity: AppCompatActivity() {
         heading.addView(t("Reset",15f,"accent",true).apply{
             setOnClickListener{
                 AlertDialog.Builder(this@ThemeEditorActivity).setTitle("Reset theme?")
-                    .setMessage("Restore default colors and shapes for this appearance?")
+                    .setMessage("Restore the last saved colors, shapes, and spacing for this appearance?")
                     .setNegativeButton("Cancel",null)
                     .setPositiveButton("Reset"){_,_->UiTheme.resetCurrentMode(this@ThemeEditorActivity);render()}
                     .show().also { UiMotion.dialog(it.window?.decorView) }
@@ -186,7 +194,7 @@ class ThemeEditorActivity: AppCompatActivity() {
         root.addView(preview,LinearLayout.LayoutParams(-1,0,1f))
         if(page==0)inbox(samples)else conversation(samples)
         root.addView(t((if(UiTheme.isDark(this))"Dark" else "Light")+
-            " theme • saved automatically",12f,"preview").apply{
+            " theme • edits save on exit",12f,"preview").apply{
                 gravity=Gravity.CENTER;setPadding(0,d(8),0,0)
             })
     }
@@ -529,8 +537,12 @@ class ThemeEditorActivity: AppCompatActivity() {
             })
         }
         contents.addView(radius)
+        contents.addView(t("Reset bubble radius to saved value",13f,"accent",true).apply {
+            setPadding(d(12),d(9),d(12),d(10))
+            setOnClickListener {radius.progress=UiTheme.savedRadius(this@ThemeEditorActivity,"bubble_radius")}
+        })
         FluidSheets.editor(this,
-            if(sent)"Sent message bubble" else "Received message bubble",contents){
+            if(sent)"Sent message bubble" else "Received message bubble",contents,{
             val current=picker.validColorOrNull()
             if(current==null){
                 picker.showInvalidCode()
@@ -543,7 +555,12 @@ class ThemeEditorActivity: AppCompatActivity() {
                 render()
                 true
             }
-        }
+        },onReset={
+            // The Reset button only affects the currently selected bubble/text color.
+            if(editingBubble)bubbleColor=UiTheme.savedColor(this,fill)
+            else textColor=UiTheme.savedColor(this,lettering)
+            picker.setColor(if(editingBubble)bubbleColor else textColor)
+        })
     }
 
     private fun spacingEditor(){
@@ -581,11 +598,11 @@ class ThemeEditorActivity: AppCompatActivity() {
                     })
                 }
                 holder.addView(seek)
-                FluidSheets.editor(this,"Edit spacing",holder){
+                FluidSheets.editor(this,"Edit spacing",holder,{
                     UiTheme.setMetric(this,key,seek.progress)
                     render()
                     true
-                }
+                },onReset={seek.progress=UiTheme.savedMetric(this,key)})
             }
     }
 
@@ -609,8 +626,12 @@ class ThemeEditorActivity: AppCompatActivity() {
                 })
             }
             contents.addView(corner)
+            contents.addView(t("Reset corner radius to saved value",13f,"accent",true).apply {
+                setPadding(d(12),d(9),d(12),d(10))
+                setOnClickListener {corner.progress=UiTheme.savedRadius(this@ThemeEditorActivity,shape)}
+            })
         }
-        FluidSheets.editor(this,UiTheme.colors[key]?:key,contents){
+        FluidSheets.editor(this,UiTheme.colors[key]?:key,contents,{
             val chosen=picker.validColorOrNull()
             if(chosen==null){
                 picker.showInvalidCode()
@@ -621,6 +642,6 @@ class ThemeEditorActivity: AppCompatActivity() {
                 render()
                 true
             }
-        }
+        },onReset={picker.setColor(UiTheme.savedColor(this,key))})
     }
 }

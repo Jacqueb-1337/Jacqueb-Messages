@@ -101,7 +101,7 @@ object FluidSheets {
     /** A draggable editing surface. Apply validation returns false to leave
      * the sheet visible with its editor state intact. */
     fun editor(activity: Activity, title: String, content: View,
-               onApply: () -> Boolean) {
+               onApply: () -> Boolean, onReset: (() -> Unit)? = null) {
         if (activity.isFinishing || activity.isDestroyed) return
         val dialog = BottomSheetDialog(activity)
         val panel = LinearLayout(activity).apply {
@@ -164,6 +164,11 @@ object FluidSheets {
                     onClick()
                 }
             }
+        if(onReset!=null) {
+            row.addView(button("Reset",false){onReset()}, LinearLayout.LayoutParams(0,px(activity,47),1f).apply{
+                marginEnd=px(activity,7)
+            })
+        }
         row.addView(button("Cancel",false){dialog.dismiss()},
             LinearLayout.LayoutParams(0,px(activity,47),1f).apply{
                 marginEnd=px(activity,9)

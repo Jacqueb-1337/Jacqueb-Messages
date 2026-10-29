@@ -150,6 +150,8 @@ dependencies {
     implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.androidx.constraintlayout)
     implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.3")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("com.google.android.material:material:1.14.0")
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.process)

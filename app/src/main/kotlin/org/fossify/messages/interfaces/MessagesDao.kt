@@ -57,6 +57,12 @@ interface MessagesDao {
     @Query("SELECT COUNT(*) FROM recycle_bin_messages")
     fun getArchivedCount(): Int
 
+    @Query("SELECT messages.* FROM messages LEFT OUTER JOIN recycle_bin_messages ON messages.id = recycle_bin_messages.id WHERE recycle_bin_messages.id IS NULL AND messages.is_scheduled = 0 AND length(trim(messages.body)) > 1")
+    fun getSearchIndexCandidates(): List<Message>
+
+    @Query("SELECT messages.* FROM messages LEFT OUTER JOIN recycle_bin_messages ON messages.id = recycle_bin_messages.id WHERE recycle_bin_messages.id IS NULL AND messages.is_scheduled = 0 AND messages.id IN (:ids)")
+    fun getSearchCandidatesByIds(ids:List<Long>):List<Message>
+
     @Query("SELECT * FROM messages WHERE body LIKE :text")
     fun getMessagesWithText(text: String): List<Message>
 

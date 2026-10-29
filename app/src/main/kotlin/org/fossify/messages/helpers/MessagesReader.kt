@@ -40,6 +40,10 @@ class MessagesReader(private val context: Context) {
         callback(smsMessages + mmsMessages)
     }
 
+    /** Exact SMS backup rows for a single Safe thread; MMS is rejected by
+     * SafeVault before this method is called. */
+    fun getSmsForSafe(threadId:Long): List<SmsBackup> = getSmsMessages(listOf(threadId))
+
     private fun getSmsMessages(threadIds: List<Long>): List<SmsBackup> {
         val projection = arrayOf(
             Sms.SUBSCRIPTION_ID,

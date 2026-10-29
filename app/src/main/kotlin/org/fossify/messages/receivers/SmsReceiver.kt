@@ -27,6 +27,8 @@ import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 import org.fossify.messages.models.Message
 import org.fossify.messages.chatheads.IncomingChatHeads
+import org.fossify.messages.safe.SafeVault
+import org.fossify.messages.search.SemanticIndexWorker
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -56,8 +58,14 @@ class SmsReceiver : BroadcastReceiver() {
                 }
 
                 val date = System.currentTimeMillis()
-                val threadId = appContext.getThreadId(address)
                 val subscriptionId = intent.getIntExtra("subscription", -1)
+                // Archive private incoming SMS BEFORE creating Telephony provider rows,
+                // normal inbox/search copies, notifications, or chat heads.
+                val privateArchived = runCatching {
+                    SafeVault.appendIncoming(appContext,address,body,date,subscriptionId,status)
+                }.getOrDefault(false)
+                if(privateArchived) return@ensureBackgroundThread
+                val threadId = appContext.getThreadId(address)
 
                 handleMessageSync(
                     context = appContext,
@@ -137,6 +145,7 @@ class SmsReceiver : BroadcastReceiver() {
         )
 
         context.messagesDB.insertOrUpdate(message)
+        SemanticIndexWorker.schedule(context)
 
         if (context.shouldUnarchive()) {
             context.updateConversationArchivedStatus(threadId, false)
