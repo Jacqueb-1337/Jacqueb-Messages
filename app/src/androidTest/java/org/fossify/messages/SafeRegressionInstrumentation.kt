@@ -11,7 +11,7 @@ import org.fossify.messages.safe.SafeActivity
 import org.fossify.messages.extensions.conversationsDB
 
 /** Runs against actual Android preferences and the real SafeStore on an emulator. */
-class SafeRegressionInstrumentation : Instrumentation() {
+class SafeRegressionInstrumentation : MmsPreparationInstrumentation() {
     private fun verifyKeyboard(context: Context, id: Long, result: Bundle) {
         val serviceClass = org.fossify.messages.chatheads.FloatingChatHeadsService::class.java
         val launch = android.content.Intent(context, serviceClass).apply {
@@ -185,8 +185,10 @@ class SafeRegressionInstrumentation : Instrumentation() {
         check(motion.drivenFrames>=3 && duringMotion) {"Main conversation physics did not react during keyboard travel: frames="+motion.drivenFrames+" displacement="+maxDeflection}
         result.putString("main_keyboard","PASS: springs driven during IME travel; frames="+motion.drivenFrames+" max displacement="+maxDeflection)
     }
-    override fun onCreate(arguments: Bundle?) { super.onCreate(arguments); start() }
+    private var mmsSuite=false
+    override fun onCreate(arguments: Bundle?) { mmsSuite=arguments?.getString("suite")=="mms";super.onCreate(arguments) }
     override fun onStart() {
+        if(mmsSuite){super.onStart();return}
         val c=targetContext
         val result=Bundle()
         val prefs=c.getSharedPreferences("messages_private_safe_v1",0)

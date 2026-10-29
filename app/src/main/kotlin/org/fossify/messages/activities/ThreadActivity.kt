@@ -846,6 +846,11 @@ class ThreadActivity : SimpleActivity() {
             any is ThreadError -> {
                 binding.messageHolder.threadTypeMessage.setText(any.messageText)
                 messageToResend = any.messageId
+                messages.firstOrNull { it.id == any.messageId && it.isMMS == any.isMms }?.attachment?.attachments?.forEach {
+                    addAttachment(it.getUri())
+                }
+                binding.messageHolder.threadTypeMessage.requestFocus()
+                toast("Message restored. Review it and tap Send to retry.", length = Toast.LENGTH_LONG)
             }
         }
     }
@@ -1519,7 +1524,7 @@ class ThreadActivity : SimpleActivity() {
             items.add(message)
 
             if (message.type == Telephony.Sms.MESSAGE_TYPE_FAILED) {
-                items.add(ThreadError(message.id, message.body))
+                items.add(ThreadError(message.id, message.body, message.isMMS))
             }
 
             if (message.type == Telephony.Sms.MESSAGE_TYPE_OUTBOX) {
@@ -1655,18 +1660,6 @@ class ThreadActivity : SimpleActivity() {
             toast(org.fossify.commons.R.string.unknown_error_occurred)
             return
         }
-        val isImage = mimeType.isImageMimeType()
-        val isGif = mimeType.isGifMimeType()
-        if (isGif || !isImage) {
-            // is it assumed that images will always be compressed below the max MMS size limit
-            val fileSize = getFileSizeFromUri(uri)
-            val mmsFileSizeLimit = config.mmsFileSizeLimit
-            if (mmsFileSizeLimit != FILE_SIZE_NONE && fileSize > mmsFileSizeLimit) {
-                toast(R.string.attachment_sized_exceeds_max_limit, length = Toast.LENGTH_LONG)
-                return
-            }
-        }
-
         var adapter = getAttachmentsAdapter()
         if (adapter == null) {
             adapter = AttachmentsAdapter(
@@ -1687,7 +1680,7 @@ class ThreadActivity : SimpleActivity() {
             uri = uri,
             mimetype = mimeType,
             filename = getFilenameFromUri(uri),
-            isPending = isImage && !isGif
+            isPending = false
         )
         adapter.addAttachment(attachment)
         checkSendMessageAvailability()
@@ -1744,6 +1737,19 @@ class ThreadActivity : SimpleActivity() {
         var text = binding.messageHolder.threadTypeMessage.value
         if (text.isEmpty() && getAttachmentSelections().isEmpty()) {
             showErrorToast(getString(org.fossify.commons.R.string.unknown_error_occurred))
+            return
+        }
+        val sendSub = availableSIMCards.getOrNull(currentSIMCardIndex)?.subscriptionId ?: SmsManager.getDefaultSmsSubscriptionId()
+        val sendLimit = org.fossify.messages.messaging.MmsAttachmentPreparer.limit(this, sendSub)
+        val oversized = getAttachmentSelections().firstOrNull { runCatching { org.fossify.messages.messaging.MmsAttachmentPreparer.size(this,it.uri,sendLimit) !in 1..sendLimit }.getOrDefault(true) }
+        if (oversized != null) {
+            org.fossify.messages.messaging.MmsAttachmentPreparer.prepare(this, oversized.uri, sendSub) { ready ->
+                getAttachmentsAdapter()?.addAttachment(oversized.copy(uri=ready,
+                    mimetype=contentResolver.getType(ready) ?: oversized.mimetype,
+                    filename=getFilenameFromUri(ready),isPending=false))
+                checkSendMessageAvailability()
+                sendMessage()
+            }
             return
         }
         scrollToBottom()

@@ -105,6 +105,7 @@ class ThreadAdapter(
     val deleteMessages: (messages: List<Message>, toRecycleBin: Boolean, fromRecycleBin: Boolean) -> Unit,
     val downloadPendingMms: (Message) -> Unit
 ) : MyRecyclerViewListAdapter<ThreadItem>(activity, recyclerView, ThreadItemDiffCallback(), itemClick) {
+    private val retryClick: (Any) -> Unit = itemClick
     private var fontSize = activity.getTextSize()
 
     @SuppressLint("MissingPermission")
@@ -210,7 +211,7 @@ class ThreadAdapter(
         holder.bindView(item, isClickable, isLongClickable) { itemView, _ ->
             when (item) {
                 is ThreadDateTime -> setupDateTime(itemView, item)
-                is ThreadError -> setupThreadError(itemView)
+                is ThreadError -> setupThreadError(itemView, item)
                 is ThreadSent -> setupThreadSuccess(itemView, item.delivered)
                 is ThreadSending -> setupThreadSending(itemView)
                 is Message -> setupView(holder, itemView, item)
@@ -227,7 +228,7 @@ class ThreadAdapter(
                 val key = (item.date.toLong() shl SIM_BITS) or sim
                 generateStableId(THREAD_DATE_TIME, key)
             }
-            is ThreadError -> generateStableId(THREAD_SENT_MESSAGE_ERROR, item.messageId)
+            is ThreadError -> generateStableId(THREAD_SENT_MESSAGE_ERROR, item.messageId * 2 + if(item.isMms) 1 else 0)
             is ThreadSending -> generateStableId(THREAD_SENT_MESSAGE_SENDING, item.messageId)
             is ThreadSent -> generateStableId(THREAD_SENT_MESSAGE_SENT, item.messageId)
         }
@@ -689,8 +690,9 @@ class ThreadAdapter(
         }
     }
 
-    private fun setupThreadError(view: View) {
+    private fun setupThreadError(view: View, item: ThreadError) {
         val binding = ItemThreadErrorBinding.bind(view)
+        binding.threadError.setOnClickListener { retryClick(item) }
         binding.threadError.setTextSize(TypedValue.COMPLEX_UNIT_PX, fontSize - 4)
     }
 
@@ -719,7 +721,7 @@ private class ThreadItemDiffCallback : DiffUtil.ItemCallback<ThreadItem>() {
     override fun areItemsTheSame(oldItem: ThreadItem, newItem: ThreadItem): Boolean {
         if (oldItem::class.java != newItem::class.java) return false
         return when (oldItem) {
-            is ThreadError -> oldItem.messageId == (newItem as ThreadError).messageId
+            is ThreadError -> oldItem.messageId == (newItem as ThreadError).messageId && oldItem.isMms == newItem.isMms
             is ThreadSent -> oldItem.messageId == (newItem as ThreadSent).messageId
             is ThreadSending -> oldItem.messageId == (newItem as ThreadSending).messageId
             is Message -> Message.areItemsTheSame(oldItem, newItem as Message)

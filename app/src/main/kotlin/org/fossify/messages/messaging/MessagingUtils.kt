@@ -167,7 +167,8 @@ class MessagingUtils(val context: Context) {
         if (attachment != null) {
             try {
                 val uri = attachment.getUri()
-                context.contentResolver.openInputStream(uri)?.use {
+                context.contentResolver.openInputStream(uri).let { stream ->
+                    requireNotNull(stream) { "Cannot read the attachment" }.use {
                     val bytes = it.readBytes()
                     val mimeType = if (attachment.mimetype.isPlainTextMimeType()) {
                         "application/txt"
@@ -176,11 +177,14 @@ class MessagingUtils(val context: Context) {
                     }
                     val name = attachment.filename
                     message.addMedia(bytes, mimeType, name, name)
+                    }
                 }
             } catch (e: Exception) {
                 context.showErrorToast(e)
+                return
             } catch (e: Error) {
                 context.showErrorToast(e.localizedMessage ?: context.getString(org.fossify.commons.R.string.unknown_error_occurred))
+                return
             }
         }
 

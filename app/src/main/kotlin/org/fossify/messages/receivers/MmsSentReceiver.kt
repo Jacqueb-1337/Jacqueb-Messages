@@ -46,7 +46,7 @@ class MmsSentReceiver : SendStatusReceiver() {
         }
 
         // In case of resent message, delete original to prevent duplication
-        if (originalResentMessageId != -1L) {
+        if (receiverResultCode == Activity.RESULT_OK && originalResentMessageId != -1L) {
             context.deleteMessage(originalResentMessageId, true)
         }
 

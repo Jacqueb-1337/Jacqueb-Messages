@@ -154,6 +154,8 @@ dependencies {
     implementation(libs.eventbus)
     implementation(libs.indicator.fast.scroll)
     implementation(libs.mmslib)
+    implementation("androidx.media3:media3-transformer:1.8.0")
+    implementation("androidx.media3:media3-effect:1.8.0")
     implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.androidx.constraintlayout)
     implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")

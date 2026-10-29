@@ -36,7 +36,7 @@ class ImageCompressor(private val context: Context) {
     fun compressImage(uri: Uri, compressSize: Long, lossy: Boolean = compressSize < FILE_SIZE_1_MB, callback: (compressedFileUri: Uri?) -> Unit) {
         ensureBackgroundThread {
             try {
-                val fileSize = context.getFileSizeFromUri(uri)
+                val fileSize = org.fossify.messages.messaging.MmsAttachmentPreparer.size(context, uri, compressSize)
                 if (fileSize > compressSize) {
                     val mimeType = contentResolver.getType(uri)!!
                     if (mimeType.isImageMimeType()) {

@@ -5,7 +5,7 @@ package org.fossify.messages.models
  */
 sealed class ThreadItem {
     data class ThreadDateTime(val date: Int, val simID: String) : ThreadItem()
-    data class ThreadError(val messageId: Long, val messageText: String) : ThreadItem()
+    data class ThreadError(val messageId: Long, val messageText: String, val isMms: Boolean = false) : ThreadItem()
     data class ThreadSent(val messageId: Long, val delivered: Boolean) : ThreadItem()
     data class ThreadSending(val messageId: Long) : ThreadItem()
 }
