@@ -33,6 +33,7 @@ android {
 
     defaultConfig {
         applicationId = project.property("APP_ID").toString()
+        testInstrumentationRunner = "org.fossify.messages.SafeRegressionInstrumentation"
         minSdk = project.libs.versions.app.build.minimumSDK.get().toInt()
         targetSdk = project.libs.versions.app.build.targetSDK.get().toInt()
         versionName = project.property("VERSION_NAME").toString()

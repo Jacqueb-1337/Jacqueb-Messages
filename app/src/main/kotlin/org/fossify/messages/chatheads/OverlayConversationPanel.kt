@@ -49,7 +49,6 @@ import org.fossify.messages.messaging.ConversationDrafts
 import org.fossify.messages.extensions.getSmsDraft
 import org.fossify.messages.activities.ThreadActivity
 import org.fossify.messages.theming.UiMotion
-import org.fossify.messages.theming.KeyboardCascade
 import org.fossify.messages.messaging.PendingMmsDownloads
 import org.fossify.messages.extensions.getMMS
 import org.fossify.messages.helpers.THREAD_ID
@@ -98,8 +97,16 @@ class OverlayConversationPanel(
     private val genieDestinationRect = RectF()
     private val geniePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private var imeVisible: Boolean? = null
-    private var pendingKeyboardDirection = 0
-    private val keyboardSettle = Runnable { finishKeyboardTransition() }
+    private val insetLocation = IntArray(2)
+    private var insetDisplayBottom = 0
+    private var imeAnimating = false
+    private var lastAppliedImeInsets: WindowInsets? = null
+    private var currentImeInsets: WindowInsets? = null
+    private var previousEdge = 0f
+    private var previousEdgeTime = 0L
+    private var imeTravel = 0f
+    private var landingVelocity = 0f
+    private var keyboardSpring: androidx.dynamicanimation.animation.SpringAnimation? = null
     private val messages = LinearLayout(host).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(12), dp(12), dp(12), dp(10))
@@ -173,40 +180,39 @@ class OverlayConversationPanel(
         setBackgroundColor(0x99000000.toInt())
         isClickable = true
         if (Build.VERSION.SDK_INT >= 30) {
+            // A stable overlay window plus animated insets lets the bottom edge
+            // follow the IME itself. No delayed ripple or guessed duration.
             setWindowInsetsAnimationCallback(object : WindowInsetsAnimation.Callback(
                 WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+                override fun onPrepare(animation: WindowInsetsAnimation) {
+                    if (animation.typeMask and WindowInsets.Type.ime() == 0) return
+                    cancelKeyboardImpact()
+                    insetDisplayBottom = 0
+                    imeAnimating = true
+                    previousEdge = (height - paddingBottom).toFloat()
+                    previousEdgeTime = SystemClock.uptimeMillis()
+                    imeTravel = 0f
+                    landingVelocity = 0f
+                }
                 override fun onProgress(
                     insets: WindowInsets,
                     runningAnimations: MutableList<WindowInsetsAnimation>
-                ): WindowInsets = insets
-
+                ): WindowInsets {
+                    if (runningAnimations.any { it.typeMask and WindowInsets.Type.ime() != 0 })
+                        updateKeyboardEdge(insets, trackVelocity = true)
+                    return insets
+                }
                 override fun onEnd(animation: WindowInsetsAnimation) {
-                    if (animation.typeMask and WindowInsets.Type.ime() != 0) {
-                        refreshHandler.removeCallbacks(keyboardSettle)
-                        post { finishKeyboardTransition() }
-                    }
+                    if (animation.typeMask and WindowInsets.Type.ime() == 0) return
+                    imeAnimating = false
+                    lastAppliedImeInsets?.let { updateKeyboardEdge(it) }
+                    // Impact belongs to this completed physical travel only.
+                    if (imeTravel > dp(40)) playKeyboardImpact(landingVelocity)
                 }
             })
             setOnApplyWindowInsetsListener { _, insets ->
-                val ime = insets.getInsets(WindowInsets.Type.ime()).bottom
-                val nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
-                val visible = insets.isVisible(WindowInsets.Type.ime()) && ime - nav > dp(56)
-                if (imeVisible == null) imeVisible = visible
-                else if (imeVisible != visible) {
-                    imeVisible = visible
-                    // The edge tracks Android's real IME resize. The impact is
-                    // triggered when that travel completes, never at its start.
-                    pendingKeyboardDirection = if (visible) -1 else 1
-                    refreshHandler.removeCallbacks(keyboardSettle)
-                    refreshHandler.postDelayed(keyboardSettle, 380L)
-                }
-                // When WM hasn't resized the overlay, move the composer
-                // above Gboard/other IME without double-applying resize.
-                val fullHeight = resources.displayMetrics.heightPixels
-                val extra = if (insets.isVisible(WindowInsets.Type.ime()) &&
-                    height >= fullHeight - dp(72))
-                    (ime - nav).coerceAtLeast(0) else 0
-                if (paddingBottom != extra) setPadding(paddingLeft, paddingTop, paddingRight, extra)
+                lastAppliedImeInsets = insets
+                if (!imeAnimating) updateKeyboardEdge(insets)
                 insets
             }
         }
@@ -309,6 +315,7 @@ class OverlayConversationPanel(
      * extrudes below it. Retraction funnels the content upward into the head.
      * The actual message views stay alive, so drafts and scroll position survive. */
     fun beginGenie(startY: Float, headCenterX: Float) {
+        cancelKeyboardImpact()
         genieAnimator?.cancel()
         releaseGenieSnapshot()
         genieStartY = startY
@@ -327,6 +334,7 @@ class OverlayConversationPanel(
     fun finishGenie() = setGenieProgress(1f)
 
     fun retractGenie(onAbsorbed: () -> Unit) {
+        cancelKeyboardImpact()
         genieAnimator?.cancel()
         releaseGenieSnapshot()
         // The avatar stays parked above the funnel until every pixel is inside.
@@ -433,13 +441,71 @@ class OverlayConversationPanel(
         }
     }
 
-    /** Keyboard geometry is handled by Android adjustResize. Once its edge
-     * lands, ripple the visible messages from bottom to top in sequence. */
-    private fun finishKeyboardTransition() {
-        val direction = pendingKeyboardDirection
-        pendingKeyboardDirection = 0
-        if (direction == 0 || !isAttachedToWindow || genieFraction != null) return
-        KeyboardCascade.play(messages, opening = direction < 0, extras = listOfNotNull(composeRow))
+    /** Insets are measured from the display bottom; subtract any part already
+     * excluded by WindowManager so navigation bars never get counted twice. */
+    private fun updateKeyboardEdge(insets: WindowInsets, trackVelocity: Boolean = false) {
+        if (Build.VERSION.SDK_INT < 30) return
+        currentImeInsets = insets
+        val ime = insets.getInsets(WindowInsets.Type.ime()).bottom
+        val nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
+        imeVisible = ime > nav + dp(56)
+        if (height == 0) return
+        getLocationOnScreen(insetLocation)
+        if (insetDisplayBottom == 0) {
+            val wm = host.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
+            insetDisplayBottom = wm.currentWindowMetrics.bounds.bottom
+        }
+        val excluded = (insetDisplayBottom - insetLocation[1] - height).coerceAtLeast(0)
+        val extra = (maxOf(ime, nav) - excluded).coerceAtLeast(0)
+            .coerceAtMost((height - dp(cardTopDp + 12)).coerceAtLeast(0))
+        if (paddingBottom != extra) setPadding(paddingLeft, paddingTop, paddingRight, extra)
+        if (trackVelocity) {
+            val now = SystemClock.uptimeMillis()
+            val edge = (height - extra).toFloat()
+            val delta = edge - previousEdge
+            val dt = now - previousEdgeTime
+            imeTravel += kotlin.math.abs(delta)
+            if (dt in 1..80 && kotlin.math.abs(delta) > .5f)
+                landingVelocity = (delta * 1000f / dt).coerceIn(-dp(160).toFloat(), dp(160).toFloat())
+            previousEdge = edge
+            previousEdgeTime = now
+        }
+    }
+
+    private fun cancelKeyboardImpact() {
+        keyboardSpring?.cancel()
+        keyboardSpring = null
+        motionCard?.translationY = 0f
+        selectedNotch?.translationY = 0f
+    }
+
+    private fun playKeyboardImpact(velocity: Float) {
+        if (!isAttachedToWindow || genieFraction != null || !UiMotion.enabled() ||
+            kotlin.math.abs(velocity) < dp(12)) return
+        val value = androidx.dynamicanimation.animation.FloatValueHolder(0f)
+        keyboardSpring = androidx.dynamicanimation.animation.SpringAnimation(value).apply {
+            spring = androidx.dynamicanimation.animation.SpringForce(0f).apply {
+                stiffness = 850f
+                dampingRatio = .68f
+            }
+            setStartVelocity(velocity)
+            setMinimumVisibleChange(.2f)
+            addUpdateListener { _, position, _ ->
+                motionCard?.translationY = position
+                selectedNotch?.translationY = position
+            }
+            addEndListener { _, _, _, _ ->
+                motionCard?.translationY = 0f
+                selectedNotch?.translationY = 0f
+            }
+            start()
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        insetDisplayBottom = 0
+        if (Build.VERSION.SDK_INT >= 30) currentImeInsets?.let { updateKeyboardEdge(it) }
     }
 
     /** Animate the conversation pointer when expanded head order changes
@@ -882,7 +948,7 @@ class OverlayConversationPanel(
             }
             backInvoked = null
         }
-        refreshHandler.removeCallbacks(keyboardSettle)
+        cancelKeyboardImpact()
         pendingScrollAlignment?.let {
             if (scroller.viewTreeObserver.isAlive)
                 scroller.viewTreeObserver.removeOnPreDrawListener(it)

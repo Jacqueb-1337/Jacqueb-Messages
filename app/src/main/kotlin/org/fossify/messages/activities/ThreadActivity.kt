@@ -252,31 +252,15 @@ class ThreadActivity : SimpleActivity() {
         startActivity(intent)
     }
 
-    private var returningToInbox = false
-    private var threadKeyboardVisible: Boolean? = null
-    private val keyboardCascadeObserver = android.view.ViewTreeObserver.OnGlobalLayoutListener {
-        if (android.os.Build.VERSION.SDK_INT >= 30 && !isFinishing && !isDestroyed) {
-            val root = binding.threadCoordinator
-            val insets = root.rootWindowInsets
-            if (insets != null) {
-                val showing = insets.isVisible(android.view.WindowInsets.Type.ime()) &&
-                    insets.getInsets(android.view.WindowInsets.Type.ime()).bottom >
-                    insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom + 90
-                val old = threadKeyboardVisible
-                threadKeyboardVisible = showing
-                if (old != null && old != showing) {
-                    root.post {
-                        if (!isFinishing && !isDestroyed) {
-                            org.fossify.messages.theming.KeyboardCascade.play(
-                                binding.threadMessagesList, opening = showing,
-                                extras = listOf(binding.messageHolder.root))
-                        }
-                    }
-                }
-            }
+    private val safeSessionHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val safeSessionExpiry = Runnable {
+        if (!isFinishing && !isDestroyed && org.fossify.messages.safe.SafeStore.isSafe(this, threadId) &&
+            !org.fossify.messages.safe.SafeStore.unlocked()) {
+            startActivity(Intent(this, org.fossify.messages.safe.SafeActivity::class.java))
+            finish()
         }
     }
-
+    private var returningToInbox = false
     private fun threadOrigin(): android.graphics.Rect? {
         if (!intent.hasExtra(UiMotion.THREAD_ORIGIN_WIDTH)) return null
         val x = intent.getIntExtra(UiMotion.THREAD_ORIGIN_X, 0)
@@ -334,7 +318,6 @@ class ThreadActivity : SimpleActivity() {
             )
         )
         setupMessagingEdgeToEdge()
-        binding.threadCoordinator.viewTreeObserver.addOnGlobalLayoutListener(keyboardCascadeObserver)
         setupMaterialScrollListener(null, binding.threadAppbar)
 
         val extras = intent.extras
@@ -371,6 +354,9 @@ class ThreadActivity : SimpleActivity() {
             startActivity(Intent(this,org.fossify.messages.safe.SafeActivity::class.java))
             finish();return
         }
+        safeSessionHandler.removeCallbacks(safeSessionExpiry)
+        if (org.fossify.messages.safe.SafeStore.isSafe(this, threadId))
+            safeSessionHandler.postDelayed(safeSessionExpiry, org.fossify.messages.safe.SafeStore.sessionRemaining() + 20L)
         setupTopAppBar(
             topAppBar = binding.threadAppbar,
             navigationIcon = NavigationIcon.Arrow,
@@ -448,7 +434,9 @@ class ThreadActivity : SimpleActivity() {
     }
 
     override fun onStop() {
-        if(org.fossify.messages.safe.SafeStore.isSafe(this,threadId))
+        safeSessionHandler.removeCallbacks(safeSessionExpiry)
+        if(org.fossify.messages.safe.SafeStore.isSafe(this,threadId) &&
+            !(isFinishing && intent.getBooleanExtra("safe_return_to_list", false)))
             org.fossify.messages.safe.SafeStore.lock()
         super.onStop()
         AudioPlayerManager.release()
@@ -469,8 +457,7 @@ class ThreadActivity : SimpleActivity() {
     }
 
     override fun onDestroy() {
-        if (binding.threadCoordinator.viewTreeObserver.isAlive)
-            binding.threadCoordinator.viewTreeObserver.removeOnGlobalLayoutListener(keyboardCascadeObserver)
+        safeSessionHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
         bus?.unregister(this)
         ConversationDrafts.unobserve(threadId, sharedDraftListener)

@@ -1,6 +1,7 @@
 package org.fossify.messages.safe
 
 import android.content.Context
+import org.fossify.messages.extensions.config
 import android.os.SystemClock
 import android.util.Base64
 import java.security.MessageDigest
@@ -22,7 +23,18 @@ object SafeStore {
     @Volatile private var retryAfter = 0L
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREF,Context.MODE_PRIVATE)
-    fun configured(ctx: Context) = prefs(ctx).contains("backup_hash") && prefs(ctx).contains("primary_kind")
+    fun legacyConfigured(ctx: Context) = prefs(ctx).contains("backup_hash") && prefs(ctx).contains("primary_kind")
+    fun frameworkConfigured(ctx: Context) = ctx.config.isAppPasswordProtectionOn ||
+        prefs(ctx).getBoolean("framework_configured", false)
+    fun configured(ctx: Context) = frameworkConfigured(ctx) || legacyConfigured(ctx)
+    fun lockHash(ctx: Context) = if (ctx.config.isAppPasswordProtectionOn) ctx.config.appPasswordHash
+        else prefs(ctx).getString("framework_hash", "").orEmpty()
+    fun lockType(ctx: Context) = if (ctx.config.isAppPasswordProtectionOn) ctx.config.appProtectionType
+        else prefs(ctx).getInt("framework_type", 0)
+    fun saveFrameworkLock(ctx: Context, hash: String, type: Int): Boolean =
+        prefs(ctx).edit().putBoolean("framework_configured", true)
+            .putString("framework_hash", hash).putInt("framework_type", type).commit()
+    fun sessionRemaining() = (activeUntil - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
     fun primary(ctx: Context) = prefs(ctx).getString("primary_kind",LOCK_DEVICE) ?: LOCK_DEVICE
     fun backup(ctx: Context) = prefs(ctx).getString("backup_kind",LOCK_PIN) ?: LOCK_PIN
     fun notificationMode(ctx: Context) = prefs(ctx).getString("alerts",ALERT_OFF) ?: ALERT_OFF
@@ -34,12 +46,13 @@ object SafeStore {
         threadId>0 && prefs(ctx).getStringSet("threads",emptySet())?.contains(threadId.toString())==true
     fun safeThreads(ctx: Context):Set<Long> =
         prefs(ctx).getStringSet("threads",emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
-    @Synchronized fun move(ctx: Context,id:Long,into:Boolean) {
-        require(id>0 && configured(ctx) && unlocked())
+    @Synchronized fun move(ctx: Context,id:Long,into:Boolean): Boolean {
+        // Expired authentication is an expected state, never a process crash.
+        if (id <= 0 || !configured(ctx) || !unlocked()) return false
         val current=prefs(ctx).getStringSet("threads",emptySet()).orEmpty().toMutableSet()
         if(into) current.add(id.toString()) else current.remove(id.toString())
-        check(prefs(ctx).edit().putStringSet("threads",current).commit())
-        if(into) {
+        if (!prefs(ctx).edit().putStringSet("threads",current).commit()) return false
+        if(into) try {
             (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager)
                 .cancel(id.hashCode())
             org.fossify.messages.chatheads.FloatingChatHeadsService.dispatchToRunning(
@@ -49,7 +62,10 @@ object SafeStore {
                         putExtra(org.fossify.messages.chatheads.FloatingChatHeadsService.EXTRA_THREAD_ID,id)
                     }
             )
+        } catch (error: Exception) {
+            android.util.Log.w("SafeStore", "Conversation moved; notification cleanup failed", error)
         }
+        return true
     }
     fun unlocked()=SystemClock.elapsedRealtime()<activeUntil
     fun unlock() { activeUntil=SystemClock.elapsedRealtime()+2*60_000L;failed=0;retryAfter=0 }

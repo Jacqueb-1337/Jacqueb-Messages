@@ -26,132 +26,283 @@ import org.fossify.messages.helpers.THREAD_TITLE
 import org.fossify.commons.helpers.ensureBackgroundThread
 import org.fossify.messages.theming.UiTheme
 
-/** Always secure from the very first frame and locked after app backgrounding. */
-class SafeActivity: SimpleActivity() {
+
+import android.view.Gravity
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.widget.FrameLayout
+import android.widget.PopupMenu
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import org.fossify.commons.dialogs.SecurityDialog
+import org.fossify.commons.helpers.SHOW_ALL_TABS
+import org.fossify.messages.extensions.config
+
+/** Safe uses the same credential dialog and app lock as Messages. */
+class SafeActivity : SimpleActivity() {
     private lateinit var main: LinearLayout
-    private var launchingThread=false
-    private var deviceAuthPending=false
-    private val accent by lazy { UiTheme.color(this,"accent") }
-    private fun dp(n:Int)=(resources.displayMetrics.density*n).toInt()
-    private fun label(t:String,size:Float=16f):TextView = TextView(this).apply {
-        text=t;textSize=size;setTextColor(UiTheme.color(this@SafeActivity,"title"))
-        setPadding(dp(3),dp(13),dp(3),dp(13))
+    private lateinit var root: LinearLayout
+    private lateinit var list: LinearLayout
+    private var launchingThread = false
+    private var deviceAuthPending = false
+    private var renderVersion = 0
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val expire = Runnable { if (!isFinishing && !isDestroyed) render() }
+    private val accent by lazy { UiTheme.color(this, "accent") }
+    private fun dp(n: Int) = (resources.displayMetrics.density * n).toInt()
+    private fun msg(t: String) = Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
+    private fun label(t: String, size: Float = 16f) = TextView(this).apply {
+        text = t; textSize = size
+        setTextColor(UiTheme.color(this@SafeActivity, "title"))
+        setPadding(dp(20), dp(12), dp(20), dp(12))
     }
-    private fun action(t:String,callback:()->Unit) {
-        main.addView(label(t,17f).apply { setOnClickListener { callback() } })
+    private fun action(t: String, callback: () -> Unit) {
+        main.addView(label(t).apply {
+            setTextColor(accent); minHeight = dp(52); setOnClickListener { callback() }
+        })
     }
-    private fun msg(t:String)=Toast.makeText(this,t,Toast.LENGTH_SHORT).show()
-    override fun onCreate(savedInstanceState:Bundle?) {
+    private fun button(t: String, callback: () -> Unit) {
+        main.addView(com.google.android.material.button.MaterialButton(this).apply {
+            text = t; backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
+            setTextColor(Color.WHITE); setOnClickListener { callback() }
+        }, LinearLayout.LayoutParams(-1, dp(56)).apply {
+            setMargins(dp(20), dp(16), dp(20), dp(12))
+        })
+    }
+    override fun onCreate(savedInstanceState: Bundle?) {
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         super.onCreate(savedInstanceState)
-        main=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(14),dp(20),dp(20))}
-        val scroll=ScrollView(this).apply {addView(main);setBackgroundColor(UiTheme.color(this@SafeActivity,"surface"))}
-        setContentView(scroll)
-        findViewById<View>(android.R.id.content)?.setPadding(0,dp(30),0,dp(28))
+        root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(UiTheme.color(this@SafeActivity, "surface"))
+        }
+        setContentView(root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         render()
     }
     override fun onResume() {
         super.onResume()
-        launchingThread=false
-        if(::main.isInitialized && !deviceAuthPending) render()
+        launchingThread = false
+        if (::root.isInitialized && !deviceAuthPending) render()
     }
     override fun onStop() {
-        if(!launchingThread) SafeStore.lock()
+        handler.removeCallbacks(expire)
+        if (!launchingThread) {
+            SafeStore.lock()
+            // Remove private rows immediately, including during authentication handoff.
+            render()
+        }
         super.onStop()
     }
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+    private fun requireUnlock(done: () -> Unit) {
+        if (SafeStore.unlocked()) done() else {
+            render()
+            unlockFramework { done() }
+        }
+    }
     private fun render() {
-        main.removeAllViews()
-        main.addView(label("‹       Safe",26f).apply {setOnClickListener { finish() }})
-        if(!SafeStore.configured(this)) return setup()
-        if(!SafeStore.unlocked()) return locked()
-        val pending=intent.getLongExtra("safe_add_thread",-1L)
-        if(pending>0 && !SafeStore.isSafe(this,pending)) {
+        if (!::root.isInitialized || isDestroyed) return
+        val version = ++renderVersion
+        handler.removeCallbacks(expire)
+        root.removeAllViews()
+        val toolbar = com.google.android.material.appbar.MaterialToolbar(this).apply {
+            title = "Safe"
+            setTitleTextColor(UiTheme.color(this@SafeActivity, "title"))
+            setNavigationIcon(androidx.appcompat.R.drawable.abc_ic_ab_back_material)
+            setNavigationOnClickListener { finish() }
+            if (SafeStore.unlocked()) {
+                menu.add("Lock").setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add("Notification privacy")
+                menu.add("About Safe privacy")
+                overflowIcon = overflowIcon?.mutate()?.apply {
+                    setTint(UiTheme.color(this@SafeActivity, "title"))
+                }
+                setOnMenuItemClickListener {
+                    if (it.title == "Lock") { SafeStore.lock(); render() }
+                    else if (it.title == "Notification privacy") requireUnlock { notificationSettings() }
+                    else AlertDialog.Builder(this@SafeActivity).setTitle("Safe privacy")
+                        .setMessage("Safe hides conversations in Messages. This version still uses Android's shared SMS database, which other permitted SMS apps can read.")
+                        .setPositiveButton("OK", null).show()
+                    true
+                }
+            }
+        }
+        root.addView(toolbar, LinearLayout.LayoutParams(-1, dp(56)))
+        main = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(ScrollView(this).apply { isFillViewport = true; addView(main) },
+            LinearLayout.LayoutParams(-1, 0, 1f))
+        if (!SafeStore.unlocked() || !SafeStore.frameworkConfigured(this)) {
+            main.addView(label("Private conversations", 25f).apply { setTypeface(null, Typeface.BOLD) })
+            main.addView(label(if (SafeStore.frameworkConfigured(this)) {
+                if (config.isAppPasswordProtectionOn) "Unlock with your Messages app lock."
+                else "Unlock with the standard Messages security screen."
+            } else if (SafeStore.legacyConfigured(this)) {
+                "Verify your previous Safe lock once to switch to the standard Messages security screen."
+            } else "Use the same PIN, pattern or biometric security screen as Messages.", 15f))
+            if (SafeStore.frameworkConfigured(this)) button("Unlock Safe") { unlockFramework() }
+            else if (SafeStore.legacyConfigured(this)) {
+                button("Verify previous Safe lock") { authenticate(SafeStore.primary(this)) }
+                action("Use previous backup method") { authenticate(SafeStore.backup(this)) }
+            } else button("Set up Safe lock") { setupFrameworkLock() }
+            return
+        }
+        handler.postDelayed(expire, SafeStore.sessionRemaining() + 20L)
+        val pending = intent.getLongExtra("safe_add_thread", -1L)
+        if (pending > 0 && !SafeStore.isSafe(this, pending)) {
+            if (!SafeStore.move(this, pending, true)) {
+                msg("Could not move conversation. Your messages are unchanged.")
+                return
+            }
             intent.removeExtra("safe_add_thread")
-            SafeStore.move(this,pending,true)
             msg("Moved conversation to Safe")
-        }
-        main.addView(label("Private conversations",18f))
-        action("Notification privacy: ${if(SafeStore.notificationMode(this)==SafeStore.ALERT_OFF) "Off" else "Redacted"}") {
-            val values=arrayOf("Notifications off","Show generic notification only")
-            AlertDialog.Builder(this).setTitle("Safe notifications")
-                .setSingleChoiceItems(values,if(SafeStore.notificationMode(this)==SafeStore.ALERT_OFF)0 else 1) {d,which->
-                    SafeStore.setNotificationMode(this,if(which==0) SafeStore.ALERT_OFF else SafeStore.ALERT_REDACTED)
-                    d.dismiss();render()
-                }.setNegativeButton("Cancel",null).create().also { secureDialog ->
-                    secureDialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    secureDialog.show()
-                }
-        }
-        action("Lock Safe now") { SafeStore.lock();render() }
-        main.addView(label("Conversations moved to Safe are hidden from the normal inbox and app search. Other SMS apps with permission can still read Android's shared message database.",12f))
+        } else intent.removeExtra("safe_add_thread")
+        main.addView(label("Hidden from your inbox and search", 14f).apply { alpha = .65f })
+        list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        main.addView(list)
+        val target = list
+        target.addView(label("Loading conversations...", 14f))
         ensureBackgroundThread {
-            val ids=SafeStore.safeThreads(this)
-            val all=try { conversationsDB.getNonArchived()+conversationsDB.getAllArchived() } catch (_:Exception) {emptyList()}
-            val matches=all.filter { it.threadId in ids }.sortedByDescending { it.date }
+            val result = runCatching {
+                val ids = SafeStore.safeThreads(this)
+                (conversationsDB.getNonArchived() + conversationsDB.getAllArchived())
+                    .filter { it.threadId in ids }.distinctBy { it.threadId }.sortedByDescending { it.date }
+            }
             runOnUiThread {
-                if(isFinishing || isDestroyed || !SafeStore.unlocked())return@runOnUiThread
-                main.addView(label(if(matches.isEmpty()) "No conversations in Safe yet. Move one from its avatar menu in the inbox." else "${matches.size} private conversations",14f))
-                matches.forEach {conv ->
-                    action(conv.title) {
-                        if(!SafeStore.unlocked()) {render();return@action}
-                        launchingThread=true
-                        startActivity(Intent(this,ThreadActivity::class.java).apply {
-                            putExtra(THREAD_ID,conv.threadId);putExtra(THREAD_TITLE,conv.title)
+                if (isFinishing || isDestroyed || version != renderVersion || !SafeStore.unlocked()) return@runOnUiThread
+                target.removeAllViews()
+                result.onSuccess { conversations ->
+                    if (conversations.isEmpty()) {
+                        target.addView(label("No conversations in Safe", 22f))
+                        target.addView(label("Open a conversation's avatar menu in your inbox and choose Move to Safe.", 15f))
+                    }
+                    conversations.forEach { conv ->
+                        val row = LinearLayout(this).apply {
+                            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                            setPadding(dp(16), dp(10), dp(8), dp(10)); minimumHeight = dp(80)
+                            val out = android.util.TypedValue()
+                            theme.resolveAttribute(android.R.attr.selectableItemBackground, out, true)
+                            setBackgroundResource(out.resourceId)
+                        }
+                        row.addView(label(conv.title.take(1).uppercase(), 23f).apply {
+                            gravity = Gravity.CENTER; setPadding(0, 0, 0, 0); setTextColor(accent)
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.OVAL
+                                setColor((accent and 0x00FFFFFF) or 0x19000000)
+                            }
+                        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+                        val details = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                        details.addView(label(conv.title, 17f).apply {
+                            setTypeface(null, Typeface.BOLD); setPadding(dp(16), 0, dp(4), dp(5))
                         })
+                        details.addView(label(conv.snippet.ifBlank { if (conv.isGroupConversation) "Group conversation" else "No message preview" }, 14f).apply {
+                            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+                            alpha = .6f; setPadding(dp(16), 0, 0, 0)
+                        })
+                        row.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+                        val more = label("⋮", 26f).apply {
+                            contentDescription = "Options for " + conv.title
+                            gravity = Gravity.CENTER; setPadding(0, 0, 0, 0)
+                        }
+                        row.addView(more, LinearLayout.LayoutParams(dp(48), dp(48)))
+                        more.setOnClickListener {
+                            if (!SafeStore.unlocked()) { render(); unlockFramework(); return@setOnClickListener }
+                            run {
+                                PopupMenu(this, more).apply {
+                                    menu.add("Move to inbox")
+                                    setOnMenuItemClickListener { confirmMoveOut(conv.threadId); true }
+                                }.show()
+                            }
+                        }
+                        row.setOnClickListener {
+                            requireUnlock {
+                                launchingThread = true
+                                startActivity(Intent(this, ThreadActivity::class.java).apply {
+                                    putExtra(THREAD_ID, conv.threadId); putExtra(THREAD_TITLE, conv.title)
+                                    putExtra("safe_return_to_list", true)
+                                })
+                            }
+                        }
+                        target.addView(row)
                     }
-                    action("Remove ${conv.title} from Safe") {
-                        AlertDialog.Builder(this).setTitle("Move out of Safe?")
-                            .setMessage("This conversation will reappear in your regular inbox.")
-                            .setNegativeButton("Cancel",null)
-                            .setPositiveButton("Move") { _,_ -> SafeStore.move(this,conv.threadId,false);render() }.create().also { secureDialog ->
-                    secureDialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    secureDialog.show()
-                }
-                    }
+                }.onFailure {
+                    target.addView(label("Conversations could not be loaded. Tap to retry.", 15f).apply {
+                        setOnClickListener { render() }
+                    })
                 }
             }
         }
     }
-    private fun setup() {
-        main.addView(label("Choose how to unlock Safe",20f))
-        main.addView(label("An independent backup unlock method is required. Safe protects the Messages interface, not the shared Android SMS database.",13f))
-        val types=arrayOf("Android screen lock / biometrics","App PIN (6–12 digits)","Pattern")
-        AlertDialog.Builder(this).setTitle("Set primary lock")
-            .setItems(types) { _,i ->
-                val kind=listOf(SafeStore.LOCK_DEVICE,SafeStore.LOCK_PIN,SafeStore.LOCK_PATTERN)[i]
-                if(kind==SafeStore.LOCK_DEVICE) {
-                    val km=getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-                    if(!km.isDeviceSecure) {msg("Set up an Android screen lock first");render();return@setItems}
-                    setupBackup(kind,null)
-                } else enterCredential(kind,"Create primary ${if(kind==SafeStore.LOCK_PIN) "PIN" else "pattern"}") { secret->
-                    enterCredential(kind,"Confirm primary unlock method") { confirmation ->
-                        if(secret!=confirmation) {msg("Primary entries did not match");render()}
-                        else setupBackup(kind,secret)
+    private fun confirmMoveOut(id: Long) {
+        requireUnlock {
+            AlertDialog.Builder(this).setTitle("Move to inbox?")
+                .setMessage("This conversation will appear in your regular inbox again.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Move") { _, _ ->
+                    // Recheck AFTER the dialog: the session may have expired while it was open.
+                    requireUnlock {
+                        if (!SafeStore.move(this, id, false))
+                            msg("Could not move conversation. It remains in Safe.")
+                        else msg("Moved conversation to inbox")
+                        render()
                     }
+                }.create().also { dialog ->
+                    dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                    dialog.show()
                 }
-            }.setNegativeButton("Cancel") {_,_->finish()}.create().also { secureDialog ->
-                    secureDialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                    secureDialog.show()
-                }
+        }
     }
-    private fun setupBackup(primary:String,secret:String?) {
-        val backup=if(primary==SafeStore.LOCK_PIN) SafeStore.LOCK_PATTERN else SafeStore.LOCK_PIN
-        enterCredential(backup,"Create required backup ${if(backup==SafeStore.LOCK_PIN)"PIN" else "pattern"}") { one ->
-            enterCredential(backup,"Confirm backup method") { two ->
-                if(one!=two) {msg("Backup entries did not match");setupBackup(primary,secret)}
-                else {
-                    try {SafeStore.configure(this,primary,secret,backup,one);render()}
-                    catch (e:Exception) {msg("Could not create Safe: ${e.message}")}
+    private fun notificationSettings() {
+        AlertDialog.Builder(this).setTitle("Safe notifications")
+            .setSingleChoiceItems(arrayOf("Off", "Generic notification only"),
+                if (SafeStore.notificationMode(this) == SafeStore.ALERT_OFF) 0 else 1) { dialog, which ->
+                requireUnlock {
+                    SafeStore.setNotificationMode(this, if (which == 0) SafeStore.ALERT_OFF else SafeStore.ALERT_REDACTED)
                 }
+                dialog.dismiss()
+            }.setNegativeButton("Cancel", null).create().also {
+                it.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE); it.show()
+            }
+    }
+    private fun secureSecurityDialog(hash: String, type: Int, callback: (String, Int, Boolean) -> Unit) {
+        val security = SecurityDialog(this, hash, type, callback)
+        // Commons 7.1.3 exposes no dialog/window accessor. Secure its pinned
+        // AlertDialog synchronously before the first draw, including PIN/pattern.
+        try {
+            val field = SecurityDialog::class.java.getDeclaredField("dialog").apply { isAccessible = true }
+            (field.get(security) as? AlertDialog)?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } catch (error: Exception) {
+            // Fail closed rather than displaying an unprotected credential surface.
+            finish()
+            android.util.Log.e("Safe", "Could not secure the standard security dialog", error)
+        }
+    }
+    private fun setupFrameworkLock() {
+        if (SafeStore.frameworkConfigured(this)) { unlockFramework(); return }
+        // Existing Safe users must verify their old lock before choosing its replacement.
+        if (SafeStore.legacyConfigured(this) && !SafeStore.unlocked()) { render(); return }
+        secureSecurityDialog("", SHOW_ALL_TABS) { hash, type, success ->
+            if (success && SafeStore.saveFrameworkLock(this, hash, type)) {
+                SafeStore.unlock(); render()
             }
         }
     }
-    private fun locked() {
-        main.addView(label("Safe is locked",20f))
-        if(SafeStore.limited()) {main.addView(label("Too many attempts. Try again shortly.",14f));return}
-        action("Unlock with primary method") {authenticate(SafeStore.primary(this))}
-        action("Use backup ${if(SafeStore.backup(this)==SafeStore.LOCK_PIN)"PIN" else "pattern"}") {
-            authenticate(SafeStore.backup(this))
+    private fun unlockFramework(done: () -> Unit = {}) {
+        if (!SafeStore.frameworkConfigured(this)) { render(); return }
+        secureSecurityDialog(SafeStore.lockHash(this), SafeStore.lockType(this)) { hash, type, success ->
+            if (success && !isFinishing && !isDestroyed) {
+                // Preserve the existing credential if app-wide protection is disabled later.
+                SafeStore.saveFrameworkLock(this, hash, type)
+                SafeStore.unlock(); render(); done()
+            }
         }
     }
     private fun authenticate(kind:String) {
@@ -166,7 +317,7 @@ class SafeActivity: SimpleActivity() {
                     .build()
                 prompt.authenticate(android.os.CancellationSignal(),mainExecutor,object:android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result:android.hardware.biometrics.BiometricPrompt.AuthenticationResult) {
-                        deviceAuthPending=false;SafeStore.unlock();render()
+                        deviceAuthPending=false;SafeStore.unlock();setupFrameworkLock()
                     }
                     override fun onAuthenticationError(errorCode:Int,errString:CharSequence) {
                         deviceAuthPending=false;render()
@@ -179,7 +330,7 @@ class SafeActivity: SimpleActivity() {
                 else {deviceAuthPending=false;render()}
             }
         } else enterCredential(kind,"Unlock Safe") { value ->
-            if(SafeStore.verify(this,kind,value))render() else {msg("Incorrect unlock method");render()}
+            if(SafeStore.verify(this,kind,value))setupFrameworkLock() else {msg("Incorrect unlock method");render()}
         }
     }
     @Deprecated("Android system credential confirmation on API 28–29")
@@ -187,8 +338,7 @@ class SafeActivity: SimpleActivity() {
         super.onActivityResult(requestCode,resultCode,data)
         if(requestCode==7142) {
             deviceAuthPending=false
-            if(resultCode==RESULT_OK) SafeStore.unlock()
-            render()
+            if(resultCode==RESULT_OK) { SafeStore.unlock();setupFrameworkLock() } else render()
         }
     }
     private fun enterCredential(kind:String,title:String,done:(String)->Unit) {

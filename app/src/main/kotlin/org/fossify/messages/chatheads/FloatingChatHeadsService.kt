@@ -310,7 +310,12 @@ class FloatingChatHeadsService : Service() {
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE),
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
-            if (focusable) softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            if (focusable) {
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    // The panel consumes animated IME insets; WM must not also resize it.
+                    softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                } else softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            }
         }
 
     private fun showHeads(animateEntry: Boolean = false) {
@@ -1628,8 +1633,8 @@ class FloatingChatHeadsService : Service() {
             (savedDockY + dp(79)).toFloat(),
             (savedDockX + dp(40)).toFloat()
         )
-        // A focusable overlay must be allowed to resize for the IME:
-        // FLAG_LAYOUT_IN_SCREEN blocks normal adjustResize on some Android 16 ROMs.
+        // API 30+ tracks animated IME insets in a stable overlay window.
+        // Older Android versions retain the platform adjustResize fallback.
         panelParams = params(-1, -1, true)
         try {
             windows.addView(overlay, panelParams)
