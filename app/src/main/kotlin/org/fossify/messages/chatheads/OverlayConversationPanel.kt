@@ -78,6 +78,12 @@ class OverlayConversationPanel(
     // Never obsolete an unfinished query every 1.6 seconds.
     private val refreshInFlight = AtomicBoolean(false)
     private var selectedIndex = heads.indexOfFirst { it.id == head.id }.coerceAtLeast(0)
+    // Keep every vertical point in the expanded panel's geometry tied to
+    // the card edge. Expanded heads themselves remain at their fixed Y.
+    private val cardTopDp = 93
+    private val pointerTopDp get() = cardTopDp - 12
+    private val genieSourceTopDp get() = cardTopDp - 13
+
     private var selectedNotch: View? = null
     private var motionCard: View? = null
     private var composeRow: View? = null
@@ -214,7 +220,7 @@ class OverlayConversationPanel(
         addView(card, LayoutParams(-1, -1).apply {
             // Keep the conversation visually attached to the expanded heads.
             // The previous 109dp offset left an oversized empty band.
-            topMargin = dp(93)
+            topMargin = dp(cardTopDp)
             leftMargin = dp(9)
             rightMargin = dp(9)
             bottomMargin = dp(12)
@@ -245,7 +251,7 @@ class OverlayConversationPanel(
             leftMargin = (selectedHeadCenter - notchWidth / 2)
                 .coerceIn(dp(15), resources.displayMetrics.widthPixels - notchWidth - dp(15))
             // Stay 12dp above the panel, overlapping the card by 3dp.
-            topMargin = dp(81)
+            topMargin = dp(pointerTopDp)
         })
         notch.bringToFront()
         val row = LinearLayout(host).apply {
@@ -325,7 +331,7 @@ class OverlayConversationPanel(
         releaseGenieSnapshot()
         // The avatar stays parked above the funnel until every pixel is inside.
         genieAnchorX = resources.displayMetrics.widthPixels - dp(43 + 68 * selectedIndex).toFloat()
-        genieStartY = dp(97).toFloat()
+        genieStartY = dp(pointerTopDp).toFloat()
         if (!ValueAnimator.areAnimatorsEnabled()) {
             setGenieProgress(0f)
             onAbsorbed()
@@ -405,7 +411,7 @@ class OverlayConversationPanel(
         // and becomes narrower as the chat is absorbed underneath its avatar.
         // The top converges more sharply than the bottom, forming the funnel.
         // Genie warp must start at the same visual boundary as the pointer.
-        val sourceTop = dp(80).coerceIn(0, height - 1)
+        val sourceTop = dp(genieSourceTopDp).coerceIn(0, height - 1)
         val sourceHeight = height - sourceTop
         val mouthY = genieStartY * (1f - p) + sourceTop * p
         val compressedHeight = sourceHeight * p.pow(1.12f)
