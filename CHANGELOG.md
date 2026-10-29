@@ -1,3 +1,11 @@
+## v0.10.0 - Messages (Jacqueb Messages project; new package)
+
+- Permanent Android package ID `com.jacqueb.messages`, with clean Android version names.
+- New full-screen update center with stable, beta, and alpha channels.
+- Optional automatic update checking, manual Check for Updates, and visible release history.
+- Download progress and pause/resume, APK package and signing verification, Android-confirmed installation.
+- Automatic recognition and restore of v0.9.20 preferences exports.
+
 ## v0.9.20 - Migration bridge (legacy package)
 
 - Final build for existing `me.jacqueb.messages.debug` users.

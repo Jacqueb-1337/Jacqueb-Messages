@@ -49,6 +49,14 @@ import org.fossify.messages.helpers.MessagesImporter
 import org.fossify.messages.helpers.refreshConversations
 import java.util.Locale
 import kotlin.system.exitProcess
+import org.fossify.messages.updates.UpdateRepository
+import org.fossify.messages.updates.UpdateActivity
+import org.fossify.messages.BuildConfig
+import org.fossify.messages.theming.UiTheme
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.appcompat.widget.SwitchCompat
+import androidx.appcompat.app.AlertDialog
 
 class SettingsActivity : SimpleActivity() {
     private var blockedNumbersAtPause = -1
@@ -119,6 +127,7 @@ class SettingsActivity : SimpleActivity() {
         setupAppPasswordProtection()
         setupMessagesExport()
         setupMessagesImport()
+        setupUpdateSettings()
         updateTextColors(binding.settingsNestedScrollview)
 
         if (
@@ -139,6 +148,52 @@ class SettingsActivity : SimpleActivity() {
         ).forEach {
             it.setTextColor(getProperPrimaryColor())
         }
+    }
+
+    private fun setupUpdateSettings() {
+        val holder=binding.settingsNestedScrollview.getChildAt(0) as? LinearLayout ?: return
+        val previous=holder.findViewWithTag<android.view.View>("jacqueb_updates_section")
+        if(previous!=null)holder.removeView(previous)
+        val px=(20*resources.displayMetrics.density).toInt()
+        val section=LinearLayout(this).apply {
+            tag="jacqueb_updates_section"
+            orientation=LinearLayout.VERTICAL
+            setPadding(px,px,px,px)
+        }
+        fun label(text:String, size:Float=15f, isHeading:Boolean=false): TextView = TextView(this).apply {
+            this.text=text
+            textSize=size
+            setTextColor(UiTheme.color(this@SettingsActivity,if(isHeading)"accent" else "title"))
+            if(isHeading)setTypeface(null,android.graphics.Typeface.BOLD)
+            setPadding(0,px/3,0,px/3)
+        }
+        section.addView(label("ABOUT & UPDATES",13f,true))
+        section.addView(label("Messages  ${BuildConfig.VERSION_NAME}",17f,true))
+        section.addView(label("Package: $packageName",12f))
+        val automatic=SwitchCompat(this).apply {
+            text="Automatically check for updates"
+            isChecked=UpdateRepository.enabled(this@SettingsActivity)
+            setOnCheckedChangeListener { _,checked -> UpdateRepository.setEnabled(this@SettingsActivity,checked) }
+            setPadding(0,px/2,0,px/2)
+        }
+        section.addView(automatic)
+        val channel=label("Update channel: ${UpdateRepository.channel(this).replaceFirstChar { it.uppercase() }}")
+        channel.setOnClickListener {
+            val options=arrayOf("Stable", "Beta (includes stable)", "Alpha (all builds)")
+            val ids=listOf("stable","beta","alpha")
+            AlertDialog.Builder(this).setTitle("Update channel")
+                .setSingleChoiceItems(options,ids.indexOf(UpdateRepository.channel(this))) { dialog,selected ->
+                    UpdateRepository.setChannel(this,ids[selected])
+                    channel.text="Update channel: ${ids[selected].replaceFirstChar { it.uppercase() }}"
+                    dialog.dismiss()
+                }.setNegativeButton("Cancel",null).show()
+        }
+        section.addView(channel)
+        section.addView(label("Check for updates",17f,true).apply {
+            contentDescription="Check for app updates and view release notes"
+            setOnClickListener { startActivity(Intent(this@SettingsActivity,UpdateActivity::class.java)) }
+        })
+        holder.addView(section)
     }
 
     private fun setupMessagesExport() {

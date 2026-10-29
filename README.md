@@ -1,6 +1,6 @@
 # Jacqueb Messages
 
-**Jacqueb Messages** is an independent, open-source Android SMS/MMS messaging app built from [Fossify Messages](https://github.com/FossifyOrg/Messages), with customized themes, floating chat heads, conversation animations, and persistent drafts shared between chat heads and the main conversation screen.
+**Messages** is an independent, open-source Android SMS/MMS messaging app maintained as the **Jacqueb Messages** project built from [Fossify Messages](https://github.com/FossifyOrg/Messages), with customized themes, floating chat heads, conversation animations, and persistent drafts shared between chat heads and the main conversation screen.
 
 ## Features
 
@@ -14,7 +14,7 @@
 
 ## Install
 
-Check [Releases](../../releases) for the latest APK. Developer preview APKs are **debug-signed**, not production-signed or Play Store releases. Android may require permission to install an APK from your chosen file manager or browser. Only use official project release assets.
+Check [Releases](../../releases) for the latest APK. Official `com.jacqueb.messages` APKs beginning with v0.10.0 are signed with the permanent Jacqueb Messages release key. Development APKs use a separate `.dev` package and cannot update official installations. Android may require permission to install an APK from your chosen file manager or browser. Only use official project release assets.
 
 **Important:** SMS/MMS functionality requires Android SMS permissions and selection as the default messaging app. Carrier-dependent MMS downloads and some system overlay behavior may vary by device and Android version. Back up your messages before using a preview build as your daily messenger.
 
@@ -25,6 +25,8 @@ Requirements: Android SDK, JDK, and the Gradle wrapper included in this reposito
 ```bash
 ./gradlew :app:assembleFossDebug
 ```
+
+This creates the separate `com.jacqueb.messages.dev` development build. Production builds require the **same privately stored release keystore** on every release and use `:app:assembleFossRelease`. The private signing files are never committed or shared.
 
 On Windows, use `gradlew.bat`. The APK is produced under `app/build/outputs/apk/foss/debug/`. `local.properties`, local signing keys, credentials, build outputs and editor settings are intentionally excluded from source control.
 
@@ -37,3 +39,15 @@ This is a development preview, not a stable production release. Features have be
 This project is a modified independent fork of **Fossify Messages**. It is not endorsed by or affiliated with the Fossify organization. The original copyright notices remain with their respective holders.
 
 The source remains licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE). Any redistribution of modified builds must follow the license terms.
+
+## Moving from the old app
+
+The final legacy-package build is **v0.9.20**, with Android ID `me.jacqueb.messages.debug`. Upgrade the old app to v0.9.20, then open Settings → Export and choose **Preferences**, saving the JSON somewhere you can find it. You may also export your SMS/MMS separately. Install the new `com.jacqueb.messages` APK, then use Settings → Import to restore your preferences. Existing Android SMS/MMS usually live in the system provider and can be displayed once the new app is made the default SMS app. Do not delete the old installation before confirming restoration. Custom audio file permissions may need to be selected again.
+
+## Updates
+
+Settings → About & Updates offers a Stable/Beta/Alpha update channel, automatic checking toggle, and manual Check for Updates. Update details show each applicable GitHub release between the installed and target version. Downloads have a progress bar and pause/resume; all APKs must match the installed package ID and signer, and Android asks before installing. Automatic checking does not silently install software.
+
+Release format and signing procedures are documented in [docs/RELEASING.md](docs/RELEASING.md).
+
+The launcher label and Android app name are **Messages**; **Jacqueb Messages** is the project/repository name.

@@ -69,11 +69,14 @@ android {
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = ".dev"
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            // R8 exhausted Windows' available native memory during release
+            // builds. Preserve an installable release APK until CI can handle
+            // minification safely. Signing is unaffected.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

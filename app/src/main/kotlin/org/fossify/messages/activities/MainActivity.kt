@@ -183,6 +183,7 @@ class MainActivity : SimpleActivity() {
 
     override fun onResume() {
         super.onResume()
+        org.fossify.messages.updates.UpdateRepository.checkOnLaunch(this,binding.root)
         if (composeReturnPending && UiMotion.enabled()) {
             composeReturnPending = false
             // Rebinding every conversation, rebuilding FAB layout and querying
@@ -939,7 +940,7 @@ class MainActivity : SimpleActivity() {
         }
 
         startAboutActivity(
-            appNameId = R.string.app_name,
+            appNameId = R.string.jacqueb_messages_name,
             licenseMask = licenses,
             versionName = BuildConfig.VERSION_NAME,
             faqItems = faqItems,
