@@ -228,34 +228,78 @@ object UiMotion {
         })
     }
 
-    /** One transform of the complete conversation, from the actual tapped row.
-     * This deliberately replaces the incompatible mix of Android shared-element
-     * resize, Activity Fade and three staggered child entrance animations. */
+    /** Window cutout reveal. The conversation layout never changes scale or
+     * position: only a rounded outline clips what is visible, exposing the
+     * already-rendered conversation list in the translucent Activity below. */
+    private fun threadMask(surface: View, origin: android.graphics.Rect,
+                           opening: Boolean, onEnd: () -> Unit = {}) {
+        if (!surface.isAttachedToWindow || surface.width <= 0 || surface.height <= 0) {
+            onEnd()
+            return
+        }
+        surface.animate().cancel()
+        surface.scaleX = 1f
+        surface.scaleY = 1f
+        surface.translationX = 0f
+        surface.translationY = 0f
+        surface.alpha = 1f
+        val screen = IntArray(2)
+        surface.getLocationOnScreen(screen)
+        val width = surface.width
+        val height = surface.height
+        val start = android.graphics.Rect(
+            (origin.left - screen[0]).coerceIn(0, width - 1),
+            (origin.top - screen[1]).coerceIn(0, height - 1),
+            (origin.right - screen[0]).coerceIn(1, width),
+            (origin.bottom - screen[1]).coerceIn(1, height)
+        )
+        if (start.right <= start.left) start.right = (start.left + 1).coerceAtMost(width)
+        if (start.bottom <= start.top) start.bottom = (start.top + 1).coerceAtMost(height)
+        val full = android.graphics.Rect(0, 0, width, height)
+        val radius = dp(surface, 18f)
+        var fraction = if (opening) 0f else 1f
+        surface.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: android.graphics.Outline) {
+                fun blend(a: Int, b: Int): Int = (a + (b - a) * fraction).toInt()
+                val left = blend(start.left, full.left)
+                val top = blend(start.top, full.top)
+                val right = blend(start.right, full.right).coerceAtLeast(left + 1)
+                val bottom = blend(start.bottom, full.bottom).coerceAtLeast(top + 1)
+                outline.setRoundRect(left, top, right, bottom, radius * (1f - fraction))
+            }
+        }
+        surface.clipToOutline = true
+        surface.invalidateOutline()
+        ValueAnimator.ofFloat(if (opening) 0f else 1f,
+                              if (opening) 1f else 0f).apply {
+            duration = if (opening) 230L else 175L
+            interpolator = if (opening) PathInterpolator(.18f, .68f, .22f, 1f)
+                           else PathInterpolator(.38f, .02f, .76f, .48f)
+            addUpdateListener {
+                fraction = it.animatedValue as Float
+                surface.invalidateOutline()
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (opening) {
+                        surface.clipToOutline = false
+                        surface.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+                        surface.invalidateOutline()
+                    }
+                    onEnd()
+                }
+            })
+            start()
+        }
+    }
+
     fun threadEnter(activity: Activity, surface: View, origin: android.graphics.Rect?) {
         if (!enabled() || origin == null || origin.isEmpty) return
+        // Do not show one fully-unmasked frame before the first layout pass.
         surface.alpha = 0f
         surface.post {
-            if (!surface.isAttachedToWindow || activity.isFinishing || activity.isDestroyed) return@post
-            val screen = IntArray(2)
-            surface.getLocationOnScreen(screen)
-            val w = surface.width.toFloat().coerceAtLeast(1f)
-            val h = surface.height.toFloat().coerceAtLeast(1f)
-            val targetCenterX = screen[0] + w / 2f
-            val targetCenterY = screen[1] + h / 2f
-            surface.pivotX = w / 2f
-            surface.pivotY = h / 2f
-            surface.scaleX = (origin.width().toFloat() / w).coerceIn(.23f, 1f)
-            surface.scaleY = (origin.height().toFloat() / h).coerceIn(.08f, 1f)
-            surface.translationX = origin.exactCenterX() - targetCenterX
-            surface.translationY = origin.exactCenterY() - targetCenterY
-            surface.alpha = 1f
-            surface.animate().cancel()
-            surface.animate()
-                .translationX(0f).translationY(0f)
-                .scaleX(1f).scaleY(1f)
-                .setDuration(330L)
-                .setInterpolator(PathInterpolator(.16f, .72f, .22f, 1f))
-                .start()
+            if (surface.isAttachedToWindow && !activity.isFinishing && !activity.isDestroyed)
+                threadMask(surface, origin, opening = true)
         }
     }
 
@@ -264,21 +308,7 @@ object UiMotion {
             finish()
             return
         }
-        surface.animate().cancel()
-        val screen = IntArray(2)
-        surface.getLocationOnScreen(screen)
-        val w = surface.width.toFloat().coerceAtLeast(1f)
-        val h = surface.height.toFloat().coerceAtLeast(1f)
-        surface.pivotX = w / 2f
-        surface.pivotY = h / 2f
-        surface.animate()
-            .translationX(origin.exactCenterX() - screen[0] - w / 2f)
-            .translationY(origin.exactCenterY() - screen[1] - h / 2f)
-            .scaleX((origin.width() / w).coerceIn(.23f, 1f))
-            .scaleY((origin.height() / h).coerceIn(.08f, 1f))
-            .setDuration(170L)
-            .setInterpolator(PathInterpolator(.25f, .05f, .60f, 1f))
-            .withEndAction(finish).start()
+        threadMask(surface, origin, opening = false, onEnd = finish)
     }
 
     fun threadReveal(views: List<View>, shared: Boolean) {

@@ -94,6 +94,8 @@ class UpdateActivity : SimpleActivity() {
         header.addView(summary)
         status=text("Checking GitHub releases...",13f,muted=true)
         header.addView(spacer(7));header.addView(status)
+        header.addView(spacer(7))
+        header.addView(text(UpdateRepository.lastCheckText(this),12f,muted=true))
         channelLabel=text("Update channel: ${UpdateRepository.channel(this).replaceFirstChar { it.uppercase() }}",13f,true)
         channelLabel.setPadding(0,dp(17),0,0)
         channelLabel.setOnClickListener { chooseChannel() }
@@ -156,10 +158,16 @@ class UpdateActivity : SimpleActivity() {
         Thread({
             try {
                 val all=UpdateRepository.fetch()
+                val checked=System.currentTimeMillis()
                 val next=UpdateRepository.pending(all,UpdateRepository.channel(this))
+                getSharedPreferences(UpdateRepository.PREF,0).edit().putLong("last_success",checked)
+                    .putString("last_status", if(next.isEmpty()) "Up to date" else "Update ${next.first().version} available")
+                    .remove("last_error").apply()
                 val current=all.firstOrNull { it.version == UpdateRepository.installed() }
                 runOnUiThread { if(!isFinishing && !isDestroyed) render(next,current) }
             } catch(e:Exception) {
+                getSharedPreferences(UpdateRepository.PREF,0).edit()
+                    .putString("last_error",e.message?.take(100) ?: "Network unavailable").apply()
                 runOnUiThread {
                     if(isFinishing || isDestroyed)return@runOnUiThread
                     status.text="Unable to check for updates"

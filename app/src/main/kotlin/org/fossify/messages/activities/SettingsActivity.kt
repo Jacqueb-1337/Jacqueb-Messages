@@ -172,10 +172,29 @@ class SettingsActivity : SimpleActivity() {
         val automatic=SwitchCompat(this).apply {
             text="Automatically check for updates"
             isChecked=UpdateRepository.enabled(this@SettingsActivity)
-            setOnCheckedChangeListener { _,checked -> UpdateRepository.setEnabled(this@SettingsActivity,checked) }
+            setOnCheckedChangeListener { _,checked ->
+                UpdateRepository.setEnabled(this@SettingsActivity,checked)
+                if(checked && android.os.Build.VERSION.SDK_INT>=33 &&
+                    androidx.core.content.ContextCompat.checkSelfPermission(this@SettingsActivity,
+                        android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
+                    androidx.core.app.ActivityCompat.requestPermissions(this@SettingsActivity,
+                        arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),4113)
+            }
             setPadding(0,px/2,0,px/2)
         }
         section.addView(automatic)
+        section.addView(label("Checks roughly every 6 hours, including in the background (Android may delay them).",12f))
+        section.addView(label(UpdateRepository.lastCheckText(this),12f))
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(this,
+                android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            section.addView(label("Update notifications are disabled. Tap to allow alerts.",13f,true).apply {
+                setOnClickListener {
+                    androidx.core.app.ActivityCompat.requestPermissions(this@SettingsActivity,
+                        arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),4113)
+                }
+            })
+        }
         val channel=label("Update channel: ${UpdateRepository.channel(this).replaceFirstChar { it.uppercase() }}")
         channel.setOnClickListener {
             val options=arrayOf("Stable", "Beta (includes stable)", "Alpha (all builds)")

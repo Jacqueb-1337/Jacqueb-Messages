@@ -1,3 +1,12 @@
+## v0.10.2 - Conversation cutout and reliable update checks
+
+- Opening and closing a main conversation now animates only a rounded clipping mask. Message contents, toolbar and composer remain at their original scale and position while the inbox underneath is revealed.
+- Automatic update checking is scheduled by Android about every six hours even while the app is backgrounded, subject to Android battery/network scheduling.
+- Successful checks, network errors and update availability are recorded and shown in Settings and the update center; a foreground automatic check also briefly displays its result.
+- A new eligible version sends a system notification when notification permission is enabled, opening the full release-notes screen. Routine up-to-date checks do not generate system notifications.
+- A failed attempt no longer starts the six-hour success cooldown; foreground attempts back off for twenty minutes after failures.
+- Keeps the official Messages app name, com.jacqueb.messages package, and production signing key.
+
 ## v0.10.1 - Inbox and messaging defaults
 
 - Inbox conversation rows place the Draft indicator to the right of the preview, instead of before the text.

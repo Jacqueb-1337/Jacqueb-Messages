@@ -183,6 +183,7 @@ class MainActivity : SimpleActivity() {
 
     override fun onResume() {
         super.onResume()
+        org.fossify.messages.updates.UpdateRepository.schedule(applicationContext)
         org.fossify.messages.updates.UpdateRepository.checkOnLaunch(this,binding.root)
         if (composeReturnPending && UiMotion.enabled()) {
             composeReturnPending = false
