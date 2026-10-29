@@ -1,3 +1,12 @@
+## v0.9.20 - Migration bridge (legacy package)
+
+- Final build for existing `me.jacqueb.messages.debug` users.
+- Export dialog now chooses Messages or Preferences.
+- Preferences export includes themes, conversation alerts, chat heads, shared drafts, and conversation photos, without security credentials.
+- Import detects message arrays or Jacqueb preferences automatically and confirms before applying preferences.
+- Normalized Android-visible version to 0.9.20.
+- Important: export Preferences before installing the new `com.jacqueb.messages` app.
+
 ## v0.9.19 - Seamless conversation return
 
 - Shortened main conversation exit transition from 290 ms to 170 ms.

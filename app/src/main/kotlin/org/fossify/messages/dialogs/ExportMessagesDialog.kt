@@ -21,6 +21,10 @@ import org.fossify.messages.activities.SimpleActivity
 import org.fossify.messages.databinding.DialogExportMessagesBinding
 import org.fossify.messages.extensions.config
 import org.fossify.messages.helpers.MessagesReader
+import org.fossify.messages.helpers.PreferencesBackup
+import android.widget.RadioGroup
+import android.widget.RadioButton
+import android.view.ViewGroup
 
 class ExportMessagesDialog(
     private val activity: SimpleActivity,
@@ -28,6 +32,7 @@ class ExportMessagesDialog(
 ) {
     private val config = activity.config
     private var dialog: AlertDialog? = null
+    private var preferencesOnly = false
 
     @SuppressLint("SetTextI18n")
     private val binding = DialogExportMessagesBinding.inflate(activity.layoutInflater).apply {
@@ -36,6 +41,23 @@ class ExportMessagesDialog(
         exportMessagesFilename.setText(
             "${activity.getString(R.string.messages)}_${activity.getCurrentFormattedDateTime()}"
         )
+        val selector = RadioGroup(activity).apply {
+            orientation = RadioGroup.HORIZONTAL
+            val msgs = RadioButton(activity).apply { id=android.view.View.generateViewId(); text="Messages"; isChecked=true }
+            val prefs = RadioButton(activity).apply { id=android.view.View.generateViewId(); text="Preferences" }
+            addView(msgs)
+            addView(prefs)
+            setOnCheckedChangeListener { _, selected ->
+                preferencesOnly = selected == prefs.id
+                exportSmsCheckbox.visibility = if (preferencesOnly) android.view.View.GONE else android.view.View.VISIBLE
+                exportMmsCheckbox.visibility = if (preferencesOnly) android.view.View.GONE else android.view.View.VISIBLE
+                exportMessagesFilename.setText(if (preferencesOnly)
+                    "Jacqueb_Preferences_${activity.getCurrentFormattedDateTime()}"
+                    else "Messages_${activity.getCurrentFormattedDateTime()}")
+            }
+        }
+        exportMessagesHolder.addView(selector,1,ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     init {
@@ -89,6 +111,12 @@ class ExportMessagesDialog(
         ensureBackgroundThread {
             var success = false
             try {
+                if (preferencesOnly) {
+                    PreferencesBackup.export(activity,uri)
+                    success = true
+                    activity.runOnUiThread { activity.toast(org.fossify.commons.R.string.exporting_successful) }
+                    return@ensureBackgroundThread
+                }
                 MessagesReader(activity).getMessagesToExport(
                     getSms = config.exportSms,
                     getMms = config.exportMms

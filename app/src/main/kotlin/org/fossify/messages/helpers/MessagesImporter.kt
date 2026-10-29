@@ -46,6 +46,51 @@ class MessagesImporter(private val activity: SimpleActivity) {
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private fun importJson(uri: Uri) {
+        // Jacqueb preferences are a versioned JSON object. SMS/MMS remains
+        // an unchanged JSON array, so legacy and other backup imports work.
+        try {
+            val first = activity.contentResolver.openInputStream(uri)?.bufferedReader().use {
+                it?.let { reader ->
+                    var c = reader.read()
+                    while (c >= 0 && (c.toChar().isWhitespace() || c == 0xfeff)) c = reader.read()
+                    if (c < 0) return else c.toChar()
+                } ?: return
+            }
+            if (first == '{') {
+                val text = activity.contentResolver.openInputStream(uri)?.bufferedReader().use {
+                    it?.readText() ?: return
+                }
+                if (!PreferencesBackup.isPreferences(text)) {
+                    activity.toast(org.fossify.commons.R.string.invalid_file_format)
+                    return
+                }
+                activity.runOnUiThread {
+                    androidx.appcompat.app.AlertDialog.Builder(activity)
+                        .setTitle("Restore Jacqueb preferences?")
+                        .setMessage("This restores saved themes, conversation alerts, chat-head settings and other preferences. Your SMS/MMS messages are unchanged. Restart the app after importing.")
+                        .setNegativeButton("Cancel",null)
+                        .setPositiveButton("Restore") { _, _ ->
+                            ensureBackgroundThread {
+                                try {
+                                    PreferencesBackup.import(activity,text)
+                                    activity.runOnUiThread {
+                                        activity.toast(org.fossify.commons.R.string.importing_successful)
+                                        androidx.appcompat.app.AlertDialog.Builder(activity)
+                                            .setMessage("Preferences restored. Restart Jacqueb Messages to apply all changes.")
+                                            .setPositiveButton("OK",null).show()
+                                    }
+                                } catch (e: Exception) {
+                                    activity.runOnUiThread { activity.showErrorToast(e) }
+                                }
+                            }
+                        }.show()
+                }
+                return
+            }
+        } catch (e: Exception) {
+            activity.showErrorToast(e)
+            return
+        }
         try {
             val deserializedList =
                 activity.contentResolver.openInputStream(uri)!!.buffered().use { inputStream ->
