@@ -10,7 +10,7 @@ MMS retry and send-time attachment compression
 Validation: real Android emulator tests use a generated 1.5 MB, five-second H264/AAC test clip and a 100 KB target. Verify dialog cancel, actual output bound, video and audio tracks, retained source, no-limit carrier ceiling, MMS provider sizing, actual failed-video status-label tap, no compression before Send, and original retention after failed retry. Carrier delivery to a real recipient is not automatically tested.
 
 Test command: adb shell am instrument -w -e suite mms com.jacqueb.messages.dev.test/org.fossify.messages.SafeRegressionInstrumentation
-Build uses the normal JDK21 configuration, with a per-command override of Xmx1200m and MaxMetaspaceSize600m for the larger Media3 compilation. The smaller historical metaspace cap failed compilation; no global machine settings were changed.
+Build uses the normal JDK21 configuration, with a per-command override of Xmx1200m and MaxMetaspaceSize600m for the larger Media3 compilation. The project metaspace cap is now 600m (heap remains 900m by default), since the historical 400m cap failed compilation; no global machine settings were changed.
 
 Synthetic fixture generation: ffmpeg -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 5 -c:v libx264 -b:v 3M -c:a aac -b:a 128k mms-test.mp4
 
