@@ -308,7 +308,8 @@ class MainActivity : SimpleActivity() {
         ensureBackgroundThread {
             // Never mark everything read if SMS permission/provider access
             // fails: only reconcile after successfully querying BOTH providers.
-            if (android.provider.Telephony.Sms.getDefaultSmsPackage(this) != packageName) return@ensureBackgroundThread
+            // Let provider permissions, not stale OEM default-SMS queries,
+            // determine whether read-state reconciliation may proceed.
             val unread = HashSet<Long>()
             var successfulQueries = 0
             for (uri in listOf(android.provider.Telephony.Sms.CONTENT_URI, android.provider.Telephony.Mms.CONTENT_URI)) {

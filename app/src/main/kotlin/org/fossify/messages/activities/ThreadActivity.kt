@@ -832,9 +832,7 @@ class ThreadActivity : SimpleActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 getOrCreateThreadAdapter().notifyDataSetChanged()
                 if (error != null) {
-                    if (error == PendingMmsDownloads.DEFAULT_SMS_REQUIRED) {
-                        startActivity(Intent(this, DefaultSmsRoleActivity::class.java))
-                    } else android.widget.Toast.makeText(this,error,
+                    android.widget.Toast.makeText(this,error,
                         android.widget.Toast.LENGTH_LONG).show()
                 } else {
                     // The receiver will refresh immediately on success/failure.

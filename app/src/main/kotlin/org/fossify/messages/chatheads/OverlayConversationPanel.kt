@@ -699,11 +699,7 @@ class OverlayConversationPanel(
                         Thread {
                             val error = PendingMmsDownloads.request(host, row.mmsId)
                             post {
-                                if (error == PendingMmsDownloads.DEFAULT_SMS_REQUIRED) {
-                                    host.startActivity(Intent(host,
-                                        org.fossify.messages.activities.DefaultSmsRoleActivity::class.java)
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                } else if (error != null) android.widget.Toast.makeText(host,
+                                if (error != null) android.widget.Toast.makeText(host,
                                     error, android.widget.Toast.LENGTH_LONG).show()
                                 refreshMessages()
                             }
