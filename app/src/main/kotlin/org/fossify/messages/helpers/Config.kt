@@ -10,6 +10,13 @@ class Config(context: Context) : BaseConfig(context) {
         fun newInstance(context: Context) = Config(context)
     }
 
+    init {
+        // Default new group conversations to actual group MMS, preserving
+        // existing users' explicit SMS/MMS selection.
+        if (!prefs.contains(SEND_GROUP_MESSAGE_MMS))
+            prefs.edit().putBoolean(SEND_GROUP_MESSAGE_MMS, true).apply()
+    }
+
     fun saveUseSIMIdAtNumber(number: String, SIMId: Int) {
         prefs.edit().putInt(USE_SIM_ID_PREFIX + number, SIMId).apply()
     }
@@ -41,7 +48,7 @@ class Config(context: Context) : BaseConfig(context) {
             .apply()
 
     var sendGroupMessageMMS: Boolean
-        get() = prefs.getBoolean(SEND_GROUP_MESSAGE_MMS, false)
+        get() = prefs.getBoolean(SEND_GROUP_MESSAGE_MMS, true)
         set(sendGroupMessageMMS) = prefs.edit()
             .putBoolean(SEND_GROUP_MESSAGE_MMS, sendGroupMessageMMS).apply()
 
@@ -54,7 +61,7 @@ class Config(context: Context) : BaseConfig(context) {
             .putInt(LOCK_SCREEN_VISIBILITY, lockScreenVisibilitySetting).apply()
 
     var mmsFileSizeLimit: Long
-        get() = prefs.getLong(MMS_FILE_SIZE_LIMIT, FILE_SIZE_200_KB)
+        get() = prefs.getLong(MMS_FILE_SIZE_LIMIT, FILE_SIZE_2_MB)
         set(mmsFileSizeLimit) = prefs.edit().putLong(MMS_FILE_SIZE_LIMIT, mmsFileSizeLimit).apply()
 
     var pinnedConversations: Set<String>
@@ -116,7 +123,7 @@ class Config(context: Context) : BaseConfig(context) {
         set(keyboardHeight) = prefs.edit().putInt(SOFT_KEYBOARD_HEIGHT, keyboardHeight).apply()
 
     var useRecycleBin: Boolean
-        get() = prefs.getBoolean(USE_RECYCLE_BIN, false)
+        get() = prefs.getBoolean(USE_RECYCLE_BIN, true)
         set(useRecycleBin) = prefs.edit().putBoolean(USE_RECYCLE_BIN, useRecycleBin).apply()
 
     var lastRecycleBinCheck: Long

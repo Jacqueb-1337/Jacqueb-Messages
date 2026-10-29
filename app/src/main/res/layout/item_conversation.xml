@@ -49,35 +49,35 @@
         app:layout_constraintEnd_toEndOf="parent"
         tools:text="Oct 28" />
 
-    <org.fossify.commons.views.MyTextView android:id="@+id/draft_indicator"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:layout_marginStart="14dp"
-        android:layout_marginEnd="4dp"
-        android:maxLines="1"
-        android:text="@string/draft"
-        android:textSize="13sp"
-        android:textColor="@color/samsung_accent"
-        app:layout_constraintStart_toEndOf="@id/conversation_image"
-        app:layout_constraintTop_toBottomOf="@id/conversation_address"
-        tools:visibility="gone" />
-
+    <!-- Keep the message preview on the left and the draft marker to its right.
+         Separate views reserve space for Draft even when the preview is long. -->
     <org.fossify.commons.views.MyTextView android:id="@+id/conversation_body_short"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
-        android:layout_marginEnd="6dp"
+        android:layout_marginStart="14dp"
         android:ellipsize="end"
         android:maxLines="2"
         android:textSize="13sp"
         android:lineSpacingExtra="2dp"
         android:textColor="@color/samsung_text_secondary"
-        app:layout_constraintStart_toEndOf="@id/draft_indicator"
-        app:layout_goneMarginStart="14dp"
+        app:layout_constraintStart_toEndOf="@id/conversation_image"
         app:layout_constraintTop_toBottomOf="@id/conversation_address"
-        app:layout_constraintEnd_toStartOf="@id/pin_indicator"
+        app:layout_constraintEnd_toStartOf="@id/draft_indicator"
         tools:text="Last message preview appears here" />
+
+    <org.fossify.commons.views.MyTextView android:id="@+id/draft_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="6dp"
+        android:maxLines="1"
+        android:text="@string/draft"
+        android:textSize="13sp"
+        android:textColor="#FF8A00"
+        app:layout_constraintBaseline_toBaselineOf="@id/conversation_body_short"
+        app:layout_constraintEnd_toStartOf="@id/pin_indicator"
+        tools:visibility="visible" />
 
     <ImageView android:id="@+id/pin_indicator"
         android:layout_width="22dp" android:layout_height="22dp"

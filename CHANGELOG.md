@@ -1,3 +1,13 @@
+## v0.10.1 - Inbox and messaging defaults
+
+- Inbox conversation rows place the Draft indicator to the right of the preview, instead of before the text.
+- Draft text defaults to orange (#FF8A00), distinct from the normal theme accent.
+- Theme Studio adds a Draft indicator text color control, accessible by tapping the Draft label in the inbox preview.
+- The Draft indicator stays visible beside long, truncated message previews.
+- New installs default to group MMS (replies stay in one group conversation), 2 MB MMS image resizing, and enabled Trash for deleted messages. Existing saved choices remain unchanged.
+- Trash is now always accessible directly in the main three-dot menu.
+- This release keeps the Messages app name, com.jacqueb.messages package ID, and existing production signing key.
+
 ## v0.10.0 - Messages (Jacqueb Messages project; new package)
 
 - Permanent Android package ID `com.jacqueb.messages`, with clean Android version names.

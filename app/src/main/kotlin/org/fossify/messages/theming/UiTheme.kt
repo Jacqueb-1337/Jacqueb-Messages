@@ -32,6 +32,7 @@ object UiTheme {
         "search" to "Search bar",
         "title" to "Contact names / primary text",
         "preview" to "Message previews",
+        "draft_text" to "Draft indicator text",
         "date" to "Timestamps",
         "divider" to "Conversation separators",
         "accent" to "Active tabs / highlights",
@@ -157,6 +158,8 @@ object UiTheme {
         val dark=isDark(ctx)
         val default=ContextCompat.getColor(ctx, refs[key] ?: R.color.samsung_accent)
         fun hex(s:String)=Color.parseColor(s)
+        // Independent of the theme accent, unless the user customizes it.
+        if(key=="draft_text") return hex("#FF8A00")
         return when(preset) {
             "amoled" -> when(key){
                 "surface","card" -> Color.BLACK

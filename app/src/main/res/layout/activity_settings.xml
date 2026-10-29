@@ -389,7 +389,7 @@
                 style="@style/SettingsSectionLabelStyle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/recycle_bin" />
+                android:text="@string/trash_menu_title" />
 
             <RelativeLayout
                 android:id="@+id/settings_use_recycle_bin_holder"
@@ -402,7 +402,7 @@
                     style="@style/SettingsSwitchStyle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/move_items_into_recycle_bin" />
+                    android:text="@string/move_deleted_messages_to_trash" />
 
             </RelativeLayout>
 
@@ -417,7 +417,7 @@
                     style="@style/SettingsTextLabelStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/empty_recycle_bin" />
+                    android:text="@string/empty_trash" />
 
                 <org.fossify.commons.views.MyTextView
                     android:id="@+id/settings_empty_recycle_bin_size"

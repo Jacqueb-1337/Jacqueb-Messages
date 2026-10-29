@@ -187,13 +187,13 @@ abstract class BaseConversationsAdapter(
                 if (this is androidx.constraintlayout.widget.ConstraintLayout.LayoutParams)
                     marginStart=textStart
             }
-            draftIndicator.layoutParams=draftIndicator.layoutParams.apply {
+            conversationBodyShort.layoutParams=conversationBodyShort.layoutParams.apply {
                 if (this is androidx.constraintlayout.widget.ConstraintLayout.LayoutParams)
                     marginStart=textStart
             }
             val smsDraft = drafts[conversation.threadId]
             draftIndicator.beVisibleIf(!smsDraft.isNullOrEmpty())
-            draftIndicator.setTextColor(properPrimaryColor)
+            draftIndicator.setTextColor(UiTheme.color(activity,"draft_text"))
 
             pinIndicator.beVisibleIf(
                 activity.config.pinnedConversations.contains(conversation.threadId.toString())

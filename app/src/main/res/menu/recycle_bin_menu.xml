@@ -7,6 +7,6 @@
         android:id="@+id/empty_recycle_bin"
         android:icon="@drawable/ic_delete_vector"
         android:showAsAction="ifRoom"
-        android:title="@string/empty_recycle_bin"
+        android:title="@string/empty_trash"
         app:showAsAction="ifRoom" />
 </menu>

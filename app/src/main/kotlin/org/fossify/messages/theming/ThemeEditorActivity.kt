@@ -218,6 +218,8 @@ class ThemeEditorActivity: AppCompatActivity() {
         rowSample(card,"✣","Family group","Jordan sent 2 photos","Yesterday",true,true)
         divider(card)
         rowSample(card,"D","Dad","Attachment","Tuesday",false,false,true)
+        divider(card)
+        rowSample(card,"M","Mom","I'll call back soon","Monday",false,false,draft=true)
         val foot=horizontal().apply{gravity=Gravity.CENTER;minimumHeight=d(63)}
         foot.addView(tap(pad(t("Conversations",17f,"accent",true),7),"accent"))
         foot.addView(badge("4"),lp(d(24),d(24)))
@@ -283,7 +285,7 @@ class ThemeEditorActivity: AppCompatActivity() {
     }
     private fun rowSample(parent:LinearLayout,letter:String,name:String,
                           snippet:String,date:String,unread:Boolean,group:Boolean,
-                          selected:Boolean=false){
+                          selected:Boolean=false,draft:Boolean=false){
         // Mirror item_conversation.xml and BaseConversationsAdapter geometry.
         val line=horizontal().apply{
             setPadding(d(20),d(UiTheme.metric(this@ThemeEditorActivity,"row_padding")),
@@ -310,6 +312,8 @@ class ThemeEditorActivity: AppCompatActivity() {
             setLineSpacing(d(2).toFloat(),1f)
             ellipsize=android.text.TextUtils.TruncateAt.END
         },"preview"),LinearLayout.LayoutParams(0,-2,1f))
+        if(draft) second.addView(tap(t(getString(org.fossify.messages.R.string.draft),13f,"draft_text",true),"draft_text"),
+            lp(-2,-2).apply{marginStart=d(8);marginEnd=d(6)})
         if(unread)second.addView(badge(if(group)"5" else "2"),lp(d(22),d(22)))
         content.addView(second)
         line.addView(content,LinearLayout.LayoutParams(0,-2,1f))

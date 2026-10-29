@@ -11,7 +11,6 @@ import org.fossify.commons.dialogs.SecurityDialog
 import org.fossify.commons.extensions.beGone
 import org.fossify.commons.extensions.beVisible
 import org.fossify.commons.extensions.beVisibleIf
-import org.fossify.commons.extensions.formatWithDeprecatedBadge
 import org.fossify.commons.extensions.getBlockedNumbers
 import org.fossify.commons.extensions.getFontSizeText
 import org.fossify.commons.extensions.getProperPrimaryColor
@@ -413,9 +412,7 @@ class SettingsActivity : SimpleActivity() {
     private fun setupUseRecycleBin() = binding.apply {
         updateRecycleBinButtons()
         settingsUseRecycleBin.isChecked = config.useRecycleBin
-        settingsUseRecycleBin.text = formatWithDeprecatedBadge(
-            labelRes = org.fossify.commons.R.string.move_items_into_recycle_bin
-        )
+        settingsUseRecycleBin.text = getString(R.string.move_deleted_messages_to_trash)
         settingsUseRecycleBinHolder.setOnClickListener {
             settingsUseRecycleBin.toggle()
             config.useRecycleBin = settingsUseRecycleBin.isChecked

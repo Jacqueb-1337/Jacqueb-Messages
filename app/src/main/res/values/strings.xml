@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="send_group_messages_as_sms">Send group messages as SMS</string>
+    <string name="trash_menu_title">Trash</string>
+    <string name="move_deleted_messages_to_trash">Move deleted messages to Trash</string>
+    <string name="empty_trash">Empty Trash</string>
     <string name="jacqueb_messages_name" translatable="false">Messages</string>
     <string name="app_launcher_name">Messages</string>
     <string name="type_a_message">Type a message…</string>
