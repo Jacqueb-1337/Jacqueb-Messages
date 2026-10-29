@@ -43,12 +43,14 @@ object SafeStore {
         prefs(ctx).edit().putString("alerts",mode).apply()
     }
     fun isSafe(ctx: Context,threadId: Long):Boolean =
-        threadId>0 && prefs(ctx).getStringSet("threads",emptySet())?.contains(threadId.toString())==true
+        threadId>0 && (prefs(ctx).getStringSet("threads",emptySet())?.contains(threadId.toString())==true || SafeVault.exists(ctx,threadId))
     fun safeThreads(ctx: Context):Set<Long> =
-        prefs(ctx).getStringSet("threads",emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+        prefs(ctx).getStringSet("threads",emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet() + SafeVault.ids(ctx)
     @Synchronized fun move(ctx: Context,id:Long,into:Boolean): Boolean {
         // Expired authentication is an expected state, never a process crash.
         if (id <= 0 || !configured(ctx) || !unlocked()) return false
+        if (into) SafeVault.capture(ctx,id)
+        else if (SafeVault.exists(ctx,id)) SafeVault.restore(ctx,id)
         val current=prefs(ctx).getStringSet("threads",emptySet()).orEmpty().toMutableSet()
         if(into) current.add(id.toString()) else current.remove(id.toString())
         if (!prefs(ctx).edit().putStringSet("threads",current).commit()) return false
@@ -65,6 +67,8 @@ object SafeStore {
         } catch (error: Exception) {
             android.util.Log.w("SafeStore", "Conversation moved; notification cleanup failed", error)
         }
+        if (!into && SafeVault.exists(ctx,id)) SafeVault.finalizeRestore(ctx,id)
+        org.fossify.messages.helpers.refreshConversations()
         return true
     }
     fun unlocked()=SystemClock.elapsedRealtime()<activeUntil

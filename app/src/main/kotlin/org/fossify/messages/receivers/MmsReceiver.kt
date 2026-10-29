@@ -80,6 +80,10 @@ class MmsReceiver(private val originalNotificationId:Long?=null) : MmsReceivedRe
         size: Int,
         address: String
     ) {
+        if (runCatching { org.fossify.messages.safe.SafeVault.absorbMms(context,mms.threadId) }
+            .getOrElse { android.util.Log.e("Safe","MMS encryption incomplete; retaining provider copy",it); false }) {
+            refreshConversations();refreshMessages();return
+        }
         val glideBitmap = try {
             Glide.with(context)
                 .asBitmap()

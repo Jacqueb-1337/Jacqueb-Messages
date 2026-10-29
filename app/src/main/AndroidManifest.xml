@@ -52,6 +52,8 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".updates.UpdateActivity" android:exported="false" />
         <activity android:name=".safe.SafeActivity" android:exported="false" />
+        <activity android:name=".safe.SafeConversationActivity" android:exported="false" />
+        <receiver android:name=".safe.SafeSmsSentReceiver" android:exported="false" />
         <service
             android:name=".updates.UpdateCheckJob"
             android:permission="android.permission.BIND_JOB_SERVICE"

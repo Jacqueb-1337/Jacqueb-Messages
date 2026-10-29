@@ -54,6 +54,20 @@ import kotlin.math.min
 class FloatingChatHeadsService : Service() {
     data class Head(val id: Long, val title: String, val address: String)
     private val heads = LinkedHashMap<Long, Head>()
+    private val panelCache = LinkedHashMap<Long, OverlayConversationPanel>()
+    private fun removeHeadEntry(id: Long): Head? {
+        panelCache.remove(id)?.discardPlaintext()
+        return heads.remove(id)
+    }
+    override fun onTrimMemory(level:Int) {
+        super.onTrimMemory(level)
+        if(level==android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level==android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+            level>=android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+            val detached=panelCache.filterValues{!it.isAttachedToWindow}.keys.toList()
+            detached.forEach { panelCache.remove(it)?.discardPlaintext() }
+        }
+    }
     private val avatarCache = HashMap<String, String?>()
     // A chat-head view can live for hours. Refresh the existing image in place
     // when its conversation picture changes rather than replacing the view.
@@ -210,7 +224,7 @@ class FloatingChatHeadsService : Service() {
         if (intent?.action == ACTION_CLEAR) clearAllHeads()
         if (intent?.action == ACTION_REMOVE_SAFE || intent?.action == ACTION_REMOVE_MUTED) {
             val removed=intent.getLongExtra(EXTRA_THREAD_ID,-1L)
-            if(removed>0 && heads.remove(removed)!=null) {
+            if(removed>0 && removeHeadEntry(removed)!=null) {
                 if(selectedId==removed) {
                     panel?.let {
                         it.animate().cancel()
@@ -235,7 +249,7 @@ class FloatingChatHeadsService : Service() {
                 heads.remove(id)
                 heads[id] = Head(id, title, address)
                 if (!expanded) selectedId = id
-                while (heads.size > 5) heads.remove(heads.keys.first())
+                while (heads.size > 5) removeHeadEntry(heads.keys.first())
                 refreshUnreadHeadCount()
                 if (expanded) {
                     if (!heads.containsKey(previous)) selectedId = id
@@ -1035,6 +1049,7 @@ class FloatingChatHeadsService : Service() {
         closingExpanded=false
         trailSprings.clear()
         followers.clear()
+        panelCache.values.forEach { it.discardPlaintext() }; panelCache.clear()
         heads.clear()
         selectedId=-1L
         unreadHeadCount=0
@@ -1054,7 +1069,7 @@ class FloatingChatHeadsService : Service() {
         hideFlyout()
         val hadExpansion = expandedStrip != null
         if (hadExpansion) collapse()
-        heads.remove(selectedId)
+        removeHeadEntry(selectedId)
         selectedId = heads.keys.lastOrNull() ?: -1L
         refreshUnreadHeadCount()
         if (heads.isEmpty()) {
@@ -1313,7 +1328,7 @@ class FloatingChatHeadsService : Service() {
         if (!heads.containsKey(id)) return
         if (expandedStrip == null) return
         val removedWasSelected=id==selectedId
-        heads.remove(id)
+        removeHeadEntry(id)
         trailSprings.remove(id)
         trailVisualAvatars.remove(id)?.let { trailVisualLayer?.removeView(it) }
         avatarViews.remove(id)?.let { avatar ->
@@ -1622,17 +1637,18 @@ class FloatingChatHeadsService : Service() {
             try { markThreadMessagesRead(head.id) } catch (_: Exception) {}
             main.post { refreshUnreadHeadCount() }
         }.start()
-        val overlay = OverlayConversationPanel(this, head,
+        val overlay = panelCache[head.id] ?: OverlayConversationPanel(this, head,
             onCollapse = { collapse() },
             onClose = { removeHead() },
             onSelect = { id -> switchExpanded(id) },
             heads = orderedHeads()
-        )
+        ).also { panelCache[head.id] = it }
+        overlay.updateSelectedHeadSlot(orderedHeads().indexOfFirst { it.id == head.id })
         panel = overlay
         if (entrance) overlay.beginGenie(
             (savedDockY + dp(79)).toFloat(),
             (savedDockX + dp(40)).toFloat()
-        )
+        ) else overlay.finishGenie()
         // API 30+ tracks animated IME insets in a stable overlay window.
         // Older Android versions retain the platform adjustResize fallback.
         panelParams = params(-1, -1, true)

@@ -1337,6 +1337,7 @@ fun Context.insertOrUpdateConversation(
     conversation: Conversation,
     cachedConv: Conversation? = conversationsDB.getConversationWithThreadId(conversation.threadId),
 ) {
+    if(org.fossify.messages.safe.SafeVault.exists(this,conversation.threadId))return
     var updatedConv = conversation
     if (cachedConv != null && cachedConv.usesCustomTitle) {
         updatedConv = updatedConv.copy(

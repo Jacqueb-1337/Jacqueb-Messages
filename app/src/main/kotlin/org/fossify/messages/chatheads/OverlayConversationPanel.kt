@@ -99,6 +99,7 @@ class OverlayConversationPanel(
     private var imeVisible: Boolean? = null
     private val insetLocation = IntArray(2)
     private var insetDisplayBottom = 0
+    private val reactiveKeyboard by lazy { org.fossify.messages.theming.ReactiveKeyboardMotion(messages) { listOfNotNull(composeRow) } }
     private var imeAnimating = false
     private var lastAppliedImeInsets: WindowInsets? = null
     private var currentImeInsets: WindowInsets? = null
@@ -177,6 +178,7 @@ class OverlayConversationPanel(
     }
 
     init {
+        synchronized(livePanels) { livePanels[this] = head.id }
         setBackgroundColor(0x99000000.toInt())
         isClickable = true
         if (Build.VERSION.SDK_INT >= 30) {
@@ -186,7 +188,7 @@ class OverlayConversationPanel(
                 WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
                 override fun onPrepare(animation: WindowInsetsAnimation) {
                     if (animation.typeMask and WindowInsets.Type.ime() == 0) return
-                    cancelKeyboardImpact()
+                    keyboardSpring?.cancel()
                     insetDisplayBottom = 0
                     imeAnimating = true
                     previousEdge = (height - paddingBottom).toFloat()
@@ -207,7 +209,7 @@ class OverlayConversationPanel(
                     imeAnimating = false
                     lastAppliedImeInsets?.let { updateKeyboardEdge(it) }
                     // Impact belongs to this completed physical travel only.
-                    if (imeTravel > dp(40)) playKeyboardImpact(landingVelocity)
+                    reactiveKeyboard.finish()
                 }
             })
             setOnApplyWindowInsetsListener { _, insets ->
@@ -449,6 +451,7 @@ class OverlayConversationPanel(
         val ime = insets.getInsets(WindowInsets.Type.ime()).bottom
         val nav = insets.getInsets(WindowInsets.Type.navigationBars()).bottom
         imeVisible = ime > nav + dp(56)
+        reactiveKeyboard.frame(ime)
         if (height == 0) return
         getLocationOnScreen(insetLocation)
         if (insetDisplayBottom == 0) {
@@ -473,6 +476,7 @@ class OverlayConversationPanel(
     }
 
     private fun cancelKeyboardImpact() {
+        reactiveKeyboard.reset()
         keyboardSpring?.cancel()
         keyboardSpring = null
         motionCard?.translationY = 0f
@@ -885,7 +889,8 @@ class OverlayConversationPanel(
     }
 
     private var backInvoked: android.window.OnBackInvokedCallback? = null
-    private var overlayFocused = true
+    private var overlayFocused = false
+    private var receivedWindowFocus = false
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         if (event.keyCode == android.view.KeyEvent.KEYCODE_BACK) {
@@ -898,7 +903,8 @@ class OverlayConversationPanel(
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         overlayFocused = hasWindowFocus
-        if (!hasWindowFocus && imeVisible != true) {
+        if (hasWindowFocus) receivedWindowFocus = true
+        if (!hasWindowFocus && receivedWindowFocus && imeVisible != true) {
             // Home/Recents may remove focus without broadcasting a reason.
             postDelayed({
                 if (isAttachedToWindow && !overlayFocused && imeVisible != true) onCollapse()
@@ -909,6 +915,8 @@ class OverlayConversationPanel(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         disposed = false
+        receivedWindowFocus = false
+        overlayFocused = false
         ConversationDrafts.observe(head.id, sharedDraftListener)
         ConversationDrafts.read(host, head.id)?.let(sharedDraftListener)
             ?: Thread {
@@ -963,4 +971,15 @@ class OverlayConversationPanel(
         queryVersion.incrementAndGet()
         super.onDetachedFromWindow()
     }
+    fun discardPlaintext() {
+        post { lastRenderedRows=null; messages.removeAllViews(); input.text.clear() }
+    }
+    companion object {
+        private val livePanels = java.util.WeakHashMap<OverlayConversationPanel,Long>()
+        fun forgetCached(thread: Long) {
+            val views=synchronized(livePanels){livePanels.entries.filter{it.value==thread}.map{it.key}}
+            views.forEach{it.discardPlaintext()}
+        }
+    }
+
 }

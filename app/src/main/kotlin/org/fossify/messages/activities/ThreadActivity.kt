@@ -290,6 +290,10 @@ class ThreadActivity : SimpleActivity() {
             startActivity(Intent(this,org.fossify.messages.safe.SafeActivity::class.java))
             finish();return
         }
+        if(org.fossify.messages.safe.SafeVault.exists(this,privateThread)) {
+            startActivity(Intent(this,org.fossify.messages.safe.SafeConversationActivity::class.java).putExtra(THREAD_ID,privateThread))
+            finish();return
+        }
         val origin = threadOrigin()
         // The window stays transparent; only the conversation surface is
         // colored. Otherwise the shrinking card reveals a gray, opaque
@@ -318,6 +322,7 @@ class ThreadActivity : SimpleActivity() {
             )
         )
         setupMessagingEdgeToEdge()
+        setupReactiveKeyboard()
         setupMaterialScrollListener(null, binding.threadAppbar)
 
         val extras = intent.extras
@@ -457,6 +462,7 @@ class ThreadActivity : SimpleActivity() {
     }
 
     override fun onDestroy() {
+        reactiveKeyboard?.reset()
         safeSessionHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
         bus?.unregister(this)
@@ -2324,6 +2330,54 @@ class ThreadActivity : SimpleActivity() {
         resources.getColor(org.fossify.commons.R.color.you_bottom_bar_color)
     } else {
         getBottomNavigationBackgroundColor()
+    }
+
+    private var reactiveKeyboard: org.fossify.messages.theming.ReactiveKeyboardMotion? = null
+    private fun setupReactiveKeyboard() {
+        val root = binding.threadCoordinator
+        val motion = org.fossify.messages.theming.ReactiveKeyboardMotion(binding.threadMessagesList) {
+            listOf(binding.messageHolder.root)
+        }
+        reactiveKeyboard = motion
+        var animating = false
+        var finalInsets: WindowInsetsCompat? = null
+        val normal = binding.messageHolder.root
+        val short = binding.shortCodeHolder.root
+        val base = normal.paddingBottom
+        val shortBase = short.paddingBottom
+        fun apply(insets: WindowInsetsCompat) {
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            val bottom = maxOf(ime,nav)
+            normal.setPadding(normal.paddingLeft,normal.paddingTop,normal.paddingRight,base+bottom)
+            short.setPadding(short.paddingLeft,short.paddingTop,short.paddingRight,shortBase+bottom)
+            motion.frame(ime)
+        }
+        // Replace the Commons end-state composer padding with frame-based padding.
+        ViewCompat.setOnApplyWindowInsetsListener(normal) { _, insets ->
+            finalInsets=insets
+            if (!animating) apply(insets)
+            insets
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(short) { _, insets -> insets }
+        ViewCompat.setWindowInsetsAnimationCallback(root, object : androidx.core.view.WindowInsetsAnimationCompat.Callback(
+            androidx.core.view.WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+            override fun onPrepare(animation: androidx.core.view.WindowInsetsAnimationCompat) {
+                if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) animating=true
+            }
+            override fun onProgress(insets: WindowInsetsCompat, runningAnimations: MutableList<androidx.core.view.WindowInsetsAnimationCompat>): WindowInsetsCompat {
+                if (runningAnimations.any { it.typeMask and WindowInsetsCompat.Type.ime()!=0 }) apply(insets)
+                return insets
+            }
+            override fun onEnd(animation: androidx.core.view.WindowInsetsAnimationCompat) {
+                if (animation.typeMask and WindowInsetsCompat.Type.ime()!=0) {
+                    animating=false; finalInsets?.let { apply(it) }; motion.finish()
+                }
+            }
+        })
+        if (android.os.Build.VERSION.SDK_INT>=30)
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        ViewCompat.requestApplyInsets(normal)
     }
 
     fun setupMessagingEdgeToEdge() {

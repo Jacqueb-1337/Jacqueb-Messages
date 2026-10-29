@@ -58,6 +58,14 @@ class SmsReceiver : BroadcastReceiver() {
                 }
 
                 val date = System.currentTimeMillis()
+                val privateDelivery = runCatching {
+                    org.fossify.messages.safe.SafeVault.appendIncoming(appContext,address,body,date,
+                        intent.getIntExtra("subscription",-1),status)
+                }.getOrElse {
+                    android.util.Log.e("Safe", "Private SMS persistence failed; preserving normal delivery", it)
+                    false
+                }
+                if (privateDelivery) return@ensureBackgroundThread
                 val threadId = appContext.getThreadId(address)
                 val subscriptionId = intent.getIntExtra("subscription", -1)
 

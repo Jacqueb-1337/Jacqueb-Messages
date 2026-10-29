@@ -46,6 +46,7 @@ class SafeActivity : SimpleActivity() {
     private var launchingThread = false
     private var deviceAuthPending = false
     private var renderVersion = 0
+    private var transferring = false
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val expire = Runnable { if (!isFinishing && !isDestroyed) render() }
     private val accent by lazy { UiTheme.color(this, "accent") }
@@ -130,7 +131,7 @@ class SafeActivity : SimpleActivity() {
                     if (it.title == "Lock") { SafeStore.lock(); render() }
                     else if (it.title == "Notification privacy") requireUnlock { notificationSettings() }
                     else AlertDialog.Builder(this@SafeActivity).setTitle("Safe privacy")
-                        .setMessage("Safe hides conversations in Messages. This version still uses Android's shared SMS database, which other permitted SMS apps can read.")
+                        .setMessage("Encrypted conversations are stored only in this app using a device-bound key. Restore them before uninstalling, clearing app data, or changing phones. Older hidden chats must be encrypted using their menu. Incoming MMS passes through the carrier download provider before entering Safe.")
                         .setPositiveButton("OK", null).show()
                     true
                 }
@@ -156,16 +157,14 @@ class SafeActivity : SimpleActivity() {
             return
         }
         handler.postDelayed(expire, SafeStore.sessionRemaining() + 20L)
+        if (transferring) { main.addView(label("Securing and verifying your messages...",16f)); return }
         val pending = intent.getLongExtra("safe_add_thread", -1L)
-        if (pending > 0 && !SafeStore.isSafe(this, pending)) {
-            if (!SafeStore.move(this, pending, true)) {
-                msg("Could not move conversation. Your messages are unchanged.")
-                return
-            }
+        if (pending > 0) {
             intent.removeExtra("safe_add_thread")
-            msg("Moved conversation to Safe")
-        } else intent.removeExtra("safe_add_thread")
-        main.addView(label("Hidden from your inbox and search", 14f).apply { alpha = .65f })
+            transfer(pending,true)
+            return
+        }
+        main.addView(label("Encrypted conversations and older hidden chats", 14f).apply { alpha = .65f })
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         main.addView(list)
         val target = list
@@ -173,8 +172,10 @@ class SafeActivity : SimpleActivity() {
         ensureBackgroundThread {
             val result = runCatching {
                 val ids = SafeStore.safeThreads(this)
-                (conversationsDB.getNonArchived() + conversationsDB.getAllArchived())
-                    .filter { it.threadId in ids }.distinctBy { it.threadId }.sortedByDescending { it.date }
+                val cached=(conversationsDB.getNonArchived() + conversationsDB.getAllArchived()).associateBy{it.threadId}
+                ids.mapNotNull { id ->
+                    if (SafeVault.exists(this,id)) SafeVault.conversation(this,id) else cached[id]
+                }.sortedByDescending { it.date }
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed || version != renderVersion || !SafeStore.unlocked()) return@runOnUiThread
@@ -203,7 +204,7 @@ class SafeActivity : SimpleActivity() {
                         details.addView(label(conv.title, 17f).apply {
                             setTypeface(null, Typeface.BOLD); setPadding(dp(16), 0, dp(4), dp(5))
                         })
-                        details.addView(label(conv.snippet.ifBlank { if (conv.isGroupConversation) "Group conversation" else "No message preview" }, 14f).apply {
+                        details.addView(label((if(!SafeVault.exists(this@SafeActivity,conv.threadId)) "Not encrypted yet - use menu to encrypt" else conv.snippet).ifBlank { if (conv.isGroupConversation) "Group conversation" else "No message preview" }, 14f).apply {
                             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
                             alpha = .6f; setPadding(dp(16), 0, 0, 0)
                         })
@@ -217,15 +218,25 @@ class SafeActivity : SimpleActivity() {
                             if (!SafeStore.unlocked()) { render(); unlockFramework(); return@setOnClickListener }
                             run {
                                 PopupMenu(this, more).apply {
+                                    if (!SafeVault.exists(this@SafeActivity,conv.threadId)) menu.add("Encrypt messages")
+                                    else {
+                                        when(runCatching { SafeVault.read(this@SafeActivity,conv.threadId).optString("phase") }.getOrDefault("")) {
+                                            "capturing" -> menu.add("Resume encryption")
+                                            "restoring","restored" -> menu.add("Resume restore")
+                                        }
+                                    }
                                     menu.add("Move to inbox")
-                                    setOnMenuItemClickListener { confirmMoveOut(conv.threadId); true }
+                                    setOnMenuItemClickListener {
+                                        if (it.title=="Move to inbox" || it.title=="Resume restore") confirmMoveOut(conv.threadId) else transfer(conv.threadId,true)
+                                        true
+                                    }
                                 }.show()
                             }
                         }
                         row.setOnClickListener {
                             requireUnlock {
                                 launchingThread = true
-                                startActivity(Intent(this, ThreadActivity::class.java).apply {
+                                startActivity(Intent(this, if(SafeVault.exists(this,conv.threadId)) SafeConversationActivity::class.java else ThreadActivity::class.java).apply {
                                     putExtra(THREAD_ID, conv.threadId); putExtra(THREAD_TITLE, conv.title)
                                     putExtra("safe_return_to_list", true)
                                 })
@@ -249,15 +260,34 @@ class SafeActivity : SimpleActivity() {
                 .setPositiveButton("Move") { _, _ ->
                     // Recheck AFTER the dialog: the session may have expired while it was open.
                     requireUnlock {
-                        if (!SafeStore.move(this, id, false))
-                            msg("Could not move conversation. It remains in Safe.")
-                        else msg("Moved conversation to inbox")
-                        render()
+                        transfer(id,false)
                     }
                 }.create().also { dialog ->
                     dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
                     dialog.show()
                 }
+        }
+    }
+    private fun transfer(id:Long, into:Boolean) {
+        requireUnlock {
+            if (transferring) return@requireUnlock
+            transferring=true;render()
+            ensureBackgroundThread {
+                val result=runCatching { check(SafeStore.move(this,id,into)) { "Unlock Safe and try again" } }
+                runOnUiThread {
+                    transferring=false
+                    if (!isFinishing && !isDestroyed) {
+                        result.onFailure { error ->
+                            AlertDialog.Builder(this).setTitle("Transfer needs attention")
+                                .setMessage(error.message ?: "Encrypted recovery copy retained. Retry to finish.")
+                                .setPositiveButton("OK",null).create().also {
+                                    it.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE);it.show()
+                                }
+                        }.onSuccess { msg(if(into) "Messages encrypted and removed from Android" else "Messages restored to inbox") }
+                        render()
+                    }
+                }
+            }
         }
     }
     private fun notificationSettings() {

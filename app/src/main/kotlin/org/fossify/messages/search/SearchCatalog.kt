@@ -31,6 +31,9 @@ object SearchCatalog {
             onCreate(db)
         }
     }
+    @Synchronized fun removeThread(ctx:Context,thread:Long) {
+        Store(ctx).use { it.writableDatabase.delete("docs","thread=?",arrayOf(thread.toString())) }
+    }
     private const val columns="k,id,mms,thread,date,body,sender,kind"
     data class Plan(val text:String,val threads:Set<Long>) {
         val contactFilter:Boolean get()=threads.isNotEmpty()
