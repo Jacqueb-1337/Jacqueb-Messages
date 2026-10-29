@@ -238,7 +238,7 @@
             android:taskAffinity="com.klinker.android.messaging.MMS_SENT" />
 
         <receiver
-            android:name=".receivers.MmsReceiver"
+            android:name=".receivers.MmsDownloadResultReceiver"
             android:exported="true"
             android:taskAffinity="com.klinker.android.messaging.MMS_RECEIVED" />
 

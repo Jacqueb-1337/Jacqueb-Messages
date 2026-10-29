@@ -13,9 +13,16 @@ class SemanticIndexWorker(context:Context,parameters:WorkerParameters):Worker(co
     override fun doWork():Result {
         if(!SemanticSearchPrefs.optedIn(applicationContext) ||
             !SemanticSearchPrefs.engineInstalled(applicationContext))return Result.success()
+        if(!SearchCatalog.ready(applicationContext))return Result.retry()
         return try {
+            val sourceVersion=SearchCatalog.lastScan(applicationContext)
             SemanticIndex.index(applicationContext,{isStopped}) { _,_-> }
-            if(isStopped)Result.retry() else Result.success()
+            // The provider might change while a large archive is embedding.
+            // If so, retry against the newest catalog rather than leaving its
+            // vectors incomplete until the next app launch.
+            if(isStopped || SearchCatalog.lastScan(applicationContext)!=sourceVersion)
+                Result.retry()
+            else Result.success()
         }catch(e:Exception) {
             android.util.Log.w("SemanticIndexWorker","Local indexing failed",e)
             if(runAttemptCount<3)Result.retry() else Result.failure()

@@ -251,6 +251,9 @@ fun Context.getMMS(
     val contactsMap = HashMap<Int, SimpleContact>()
     queryCursor(uri, projection, selection, selectionArgs, sortOrder, showErrors = true) { cursor ->
         val mmsId = cursor.getLongValue(Mms._ID)
+        if(org.fossify.messages.messaging.PendingMmsDownloads.shouldHoldRetrieved(mmsId) ||
+           org.fossify.messages.messaging.PendingMmsDownloads.shouldHideNotification(this,mmsId))
+            return@queryCursor
         val type = cursor.getIntValue(Mms.MESSAGE_BOX)
         val date = cursor.getLongValue(Mms.DATE).toInt()
         val read = cursor.getIntValue(Mms.READ) == 1

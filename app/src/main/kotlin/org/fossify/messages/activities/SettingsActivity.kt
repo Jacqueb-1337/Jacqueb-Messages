@@ -56,6 +56,7 @@ import org.fossify.messages.search.SemanticSearchPrefs
 import org.fossify.messages.search.SemanticEngine
 import org.fossify.messages.search.SemanticModelManager
 import org.fossify.messages.search.SemanticIndex
+import org.fossify.messages.search.SearchCatalog
 import org.fossify.messages.search.SemanticIndexWorker
 import androidx.work.WorkManager
 import java.util.concurrent.atomic.AtomicBoolean
@@ -212,11 +213,14 @@ class SettingsActivity : SimpleActivity() {
         val installed=SemanticModelManager.installed(this,chosen)
         val opted=SemanticSearchPrefs.optedIn(this)
         val indexed=if(installed && opted)SemanticIndex.count(this,chosen) else 0
+        val catalogComplete=SearchCatalog.ready(this)
+        val available=if(catalogComplete)SearchCatalog.countText(this) else 0
         val status=when{
             !installed -> "Not ready • engine download required"
             !opted -> "Engine downloaded • turned off"
-            indexed>0 -> "Ready • "+indexed+" messages indexed"
-            else -> "Installed • indexing messages"
+            !catalogComplete -> "Preparing full message history"
+            indexed<available -> "Indexing "+indexed+" of "+available+" messages"
+            else -> "Ready • "+indexed+" messages indexed"
         }
         val section=column().apply{
             tag="messages_semantic_section"
@@ -289,8 +293,10 @@ class SettingsActivity : SimpleActivity() {
         }
         gap(section,6)
         section.addView(text(when {
-            installed && opted && indexed>0 -> "Search is ready. Regular keyword matches still appear first."
-            installed && opted -> "The model is installed. Your private search index is being prepared."
+            installed && opted && catalogComplete && indexed>=available ->
+                "Full message history indexed. Exact keyword matches still appear first."
+            installed && opted ->
+                "Indexing your entire message history in the background. Existing keyword search still works."
             installed -> "The model is downloaded but semantic search is turned off."
             else -> "The engine runs on your phone only after you choose to download it."
         },13f,muted))

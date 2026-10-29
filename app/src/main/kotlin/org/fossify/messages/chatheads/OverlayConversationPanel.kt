@@ -212,8 +212,9 @@ class OverlayConversationPanel(
         }
         motionCard = card
         addView(card, LayoutParams(-1, -1).apply {
-            // Messenger aligns the content very close beneath the head row.
-            topMargin = dp(109)
+            // Keep the conversation visually attached to the expanded heads.
+            // The previous 109dp offset left an oversized empty band.
+            topMargin = dp(93)
             leftMargin = dp(9)
             rightMargin = dp(9)
             bottomMargin = dp(12)
@@ -243,7 +244,8 @@ class OverlayConversationPanel(
         addView(notch, LayoutParams(notchWidth, dp(15)).apply {
             leftMargin = (selectedHeadCenter - notchWidth / 2)
                 .coerceIn(dp(15), resources.displayMetrics.widthPixels - notchWidth - dp(15))
-            topMargin = dp(97)
+            // Stay 12dp above the panel, overlapping the card by 3dp.
+            topMargin = dp(81)
         })
         notch.bringToFront()
         val row = LinearLayout(host).apply {
@@ -402,7 +404,8 @@ class OverlayConversationPanel(
         // Unlike a changing mask, EVERY horizontal row physically travels up
         // and becomes narrower as the chat is absorbed underneath its avatar.
         // The top converges more sharply than the bottom, forming the funnel.
-        val sourceTop = dp(96).coerceIn(0, height - 1)
+        // Genie warp must start at the same visual boundary as the pointer.
+        val sourceTop = dp(80).coerceIn(0, height - 1)
         val sourceHeight = height - sourceTop
         val mouthY = genieStartY * (1f - p) + sourceTop * p
         val compressedHeight = sourceHeight * p.pow(1.12f)
@@ -685,27 +688,23 @@ class OverlayConversationPanel(
                 }
             }
             if (row.media.isEmpty() && row.text.isBlank() && row.mms) {
-                val fetching = PendingMmsDownloads.isDownloading(row.mmsId)
-                holder.addView(label(when {
-                    !row.pendingMms -> "MMS attachment unavailable"
-                    fetching -> "Downloading MMS…"
-                    else -> "↓  Download MMS"
-                }, 14f, false).apply {
-                    setPadding(dp(6), dp(9), dp(6), dp(9))
-                    isClickable = row.pendingMms && !fetching
-                    contentDescription = if (row.pendingMms) "Download multimedia message" else "MMS unavailable"
-                    setOnClickListener {
-                        if (!row.pendingMms || fetching) return@setOnClickListener
+                if(row.pendingMms){
+                    holder.addView(org.fossify.messages.messaging.MmsDownloadProgressView.create(
+                        host,row.mmsId
+                    ){
+                        if(PendingMmsDownloads.isDownloading(row.mmsId)) return@create
                         Thread {
-                            val error = PendingMmsDownloads.request(host, row.mmsId)
+                            val error=PendingMmsDownloads.request(host,row.mmsId)
                             post {
-                                if (error != null) android.widget.Toast.makeText(host,
-                                    error, android.widget.Toast.LENGTH_LONG).show()
+                                if(error!=null)android.widget.Toast.makeText(host,
+                                    error,android.widget.Toast.LENGTH_LONG).show()
                                 refreshMessages()
                             }
                         }.start()
-                    }
-                })
+                    })
+                } else {
+                    holder.addView(label("MMS attachment unavailable",14f,false))
+                }
             }
             line.addView(holder, LinearLayout.LayoutParams(-2, -2).apply {
                 leftMargin = if (row.sent) dp(62) else 0

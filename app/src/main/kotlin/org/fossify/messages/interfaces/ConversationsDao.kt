@@ -39,6 +39,9 @@ interface ConversationsDao {
     @Query("SELECT * FROM conversations WHERE read = 0")
     fun getUnreadConversations(): List<Conversation>
 
+    @Query("SELECT * FROM conversations")
+    fun getAllForSearch(): List<Conversation>
+
     @Query("SELECT * FROM conversations WHERE title LIKE :text")
     fun getConversationsWithText(text: String): List<Conversation>
 

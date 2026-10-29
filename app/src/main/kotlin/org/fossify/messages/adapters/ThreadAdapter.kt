@@ -429,28 +429,15 @@ class ThreadAdapter(
             if (message.isMmsDownloadPending) {
                 threadMessageAttachmentsHolder.beVisible()
                 threadMessagePlayOutline.beGone()
-                val downloading = PendingMmsDownloads.isDownloading(message.id)
-                val downloadLabel = TextView(activity).apply {
-                    text = if (downloading) "Downloading MMS…" else "Download MMS"
-                    textSize = 15f
-                    gravity = Gravity.CENTER_VERTICAL
-                    val pad = UiTheme.dp(activity, 14)
-                    setPadding(pad, pad, pad, pad)
-                    background = UiTheme.bubble(activity, false)
-                    setTextColor(UiTheme.color(activity, "incoming_text"))
-                    setCompoundDrawablesWithIntrinsicBounds(
-                        if (downloading) 0 else R.drawable.ic_arrow_down_vector, 0, 0, 0)
-                    compoundDrawablePadding = UiTheme.dp(activity, 10)
-                    contentDescription = if (downloading) "Downloading multimedia message"
-                        else "Download multimedia message"
-                    isEnabled = !downloading
-                    setOnClickListener {
+                threadMessageAttachmentsHolder.addView(
+                    org.fossify.messages.messaging.MmsDownloadProgressView.create(
+                        activity,message.id
+                    ) {
                         if (actModeCallback.isSelectable) holder.viewClicked(message)
-                        else if (!PendingMmsDownloads.isDownloading(message.id)) downloadPendingMms(message)
+                        else if (!PendingMmsDownloads.isDownloading(message.id))
+                            downloadPendingMms(message)
                     }
-                    setOnLongClickListener { holder.viewLongClicked(); true }
-                }
-                threadMessageAttachmentsHolder.addView(downloadLabel)
+                )
             } else if (message.attachment?.attachments?.isNotEmpty() == true) {
                 threadMessageAttachmentsHolder.beVisible()
                 for (attachment in message.attachment.attachments) {

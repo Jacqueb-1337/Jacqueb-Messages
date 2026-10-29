@@ -27,7 +27,7 @@ import org.fossify.messages.models.Message
 import org.fossify.messages.messaging.PendingMmsDownloads
 import org.fossify.messages.chatheads.IncomingChatHeads
 
-class MmsReceiver : MmsReceivedReceiver() {
+class MmsReceiver(private val originalNotificationId:Long?=null) : MmsReceivedReceiver() {
 
     override fun isAddressBlocked(context: Context, address: String): Boolean {
         if (context.isNumberBlocked(address)) return true
@@ -45,12 +45,21 @@ class MmsReceiver : MmsReceivedReceiver() {
     }
 
     override fun onMessageReceived(context: Context, messageUri: Uri?) {
-        PendingMmsDownloads.clear()
         val mms = if (messageUri != null) {
             context.getMMS(messageUri)
         } else {
             context.getLatestMMS()
-        } ?: return
+        }
+        if(mms==null) {
+            PendingMmsDownloads.fail(originalNotificationId,"Downloaded MMS could not be read.")
+            return
+        }
+        if(originalNotificationId!=null && messageUri!=null &&
+            !PendingMmsDownloads.complete(context,originalNotificationId,messageUri)) {
+            PendingMmsDownloads.fail(originalNotificationId,
+                "MMS could not be verified after downloading.")
+            return
+        }
 
         val address = mms.getSender()?.phoneNumbers?.firstOrNull()?.normalizedNumber ?: mms.senderPhoneNumber
         val size = context.resources.getDimension(R.dimen.notification_large_icon_size).toInt()
@@ -60,7 +69,7 @@ class MmsReceiver : MmsReceivedReceiver() {
     }
 
     override fun onError(context: Context, error: String) {
-        PendingMmsDownloads.clear()
+        PendingMmsDownloads.fail(originalNotificationId,error)
         refreshMessages()
         context.showErrorToast(context.getString(R.string.couldnt_download_mms))
     }
@@ -104,6 +113,7 @@ class MmsReceiver : MmsReceivedReceiver() {
         if (context.shouldUnarchive()) {
             context.updateConversationArchivedStatus(mms.threadId, false)
         }
+        org.fossify.messages.search.SearchCatalogWorker.schedule(context,force=true)
         refreshMessages()
         refreshConversations()
     }

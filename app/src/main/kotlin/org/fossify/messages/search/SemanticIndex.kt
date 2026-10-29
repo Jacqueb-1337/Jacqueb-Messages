@@ -174,7 +174,8 @@ object SemanticIndex {
     fun index(ctx:Context,stopped:()->Boolean={false},progress:(Int,Int)->Unit={_,_->}) {
         if(!SemanticSearchPrefs.optedIn(ctx) || !SemanticSearchPrefs.engineInstalled(ctx))return
         val engine=SemanticSearchPrefs.selected(ctx)
-        val candidates=ctx.messagesDB.getSearchIndexCandidates()
+        if(!SearchCatalog.ready(ctx))return
+        val candidates=SearchCatalog.all(ctx)
             .filter{it.body.isNotBlank() && !SafeStore.isSafe(ctx,it.threadId)}
         val db=Store(ctx)
         db.use {store ->
@@ -222,23 +223,32 @@ object SemanticIndex {
         if(!SemanticSearchPrefs.optedIn(ctx) || !SemanticSearchPrefs.engineInstalled(ctx) || query.length<3)
             return emptyList()
         val engine=SemanticSearchPrefs.selected(ctx)
-        val vector=queryVector(ctx,engine,query.take(512))
+        val plan=SearchCatalog.plan(ctx,query)
+        if(plan.text.isBlank())return SearchCatalog.search(ctx,plan,limit)
+        // Natural-language queries can include facts not mentioned in SMS.
+        // Embed the topic rather than requiring incidental recipient details.
+        val topic=SearchCatalog.semanticTopic(query,plan.text)
+        val vector=queryVector(ctx,engine,topic.take(512))
+        val allowedKeys=if(plan.contactFilter)SearchCatalog.threadKeys(ctx,plan.threads)
+                        else emptySet()
         val scored=ArrayList<Pair<Long,Float>>()
         Store(ctx).use {store->
             store.readableDatabase.rawQuery("SELECT key,vec FROM vectors WHERE model=?",
                 arrayOf(engine.id)).use {cursor->
                 while(cursor.moveToNext()){
+                    val candidateKey=cursor.getLong(0)
+                    if(plan.contactFilter && candidateKey !in allowedKeys)continue
                     val score=similarity(vector,cursor.getBlob(1))
-                    if(score>=.3f)scored.add(cursor.getLong(0) to score)
+                    if(score>=.3f)scored.add(candidateKey to score)
                 }
             }
         }
         val best=scored.sortedByDescending{it.second}.take(limit).map{it.first}
         if(best.isEmpty())return emptyList()
-        val ids=best.map{it ushr 1}.distinct()
-        val possible=ctx.messagesDB.getSearchCandidatesByIds(ids)
+        val possible=SearchCatalog.byKeys(ctx,best)
             .filterNot{SafeStore.isSafe(ctx,it.threadId)}
             .associateBy{key(it)}
         return best.mapNotNull{possible[it]}
+            .filter{!plan.threads.any() || it.threadId in plan.threads}
     }
 }

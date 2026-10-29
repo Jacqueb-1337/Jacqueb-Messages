@@ -68,6 +68,8 @@ import org.fossify.messages.safe.SafeActivity
 import org.fossify.messages.search.SemanticSearchPrefs
 import org.fossify.messages.search.SemanticIndex
 import org.fossify.messages.search.SemanticIndexWorker
+import org.fossify.messages.search.SearchCatalog
+import org.fossify.messages.search.SearchCatalogWorker
 import org.fossify.messages.adapters.ConversationsAdapter
 import org.fossify.messages.adapters.SearchResultsAdapter
 import org.fossify.messages.databinding.ActivityMainBinding
@@ -102,6 +104,7 @@ class MainActivity : SimpleActivity() {
     private var semanticPromptShownForCurrentSearch = false
     private val semanticDebounce=android.os.Handler(android.os.Looper.getMainLooper())
     private var semanticPending:Runnable?=null
+    private var searchBackfillPending:Runnable?=null
     private var bus: EventBus? = null
 
     private val binding by viewBinding(ActivityMainBinding::inflate)
@@ -179,10 +182,23 @@ class MainActivity : SimpleActivity() {
             }
         }
     }
+    private val searchCatalogReceiver=object:android.content.BroadcastReceiver() {
+        override fun onReceive(ctx:android.content.Context?,intent:android.content.Intent?) {
+            if(!isFinishing && !isDestroyed && binding.mainMenu.isSearchOpen &&
+                lastSearchedText.length>=2) {
+                searchTextChanged(lastSearchedText,true)
+            }
+        }
+    }
+    private var catalogReceiverRegistered=false
+
     private val inboxMessagesObserver = object : android.database.ContentObserver(inboxSyncHandler) {
         override fun onChange(selfChange: Boolean) { scheduleInboxSync() }
     }
     private fun scheduleInboxSync() {
+        // A provider update must refresh the whole search catalog, regardless
+        // of whether its conversation screen has ever been opened.
+        SearchCatalogWorker.schedule(applicationContext,force=true)
         inboxSyncHandler.removeCallbacks(inboxSyncRunnable)
         inboxSyncHandler.postDelayed(inboxSyncRunnable, 170L)
     }
@@ -190,8 +206,15 @@ class MainActivity : SimpleActivity() {
     private var composeReturnPending = false
 
     override fun onResume() {
+        SearchCatalogWorker.schedule(applicationContext)
         SemanticIndexWorker.schedule(applicationContext)
         super.onResume()
+        if(!catalogReceiverRegistered) {
+            androidx.core.content.ContextCompat.registerReceiver(this,searchCatalogReceiver,
+                android.content.IntentFilter(SearchCatalogWorker.ACTION_UPDATED),
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+            catalogReceiverRegistered=true
+        }
         org.fossify.messages.updates.UpdateRepository.schedule(applicationContext)
         org.fossify.messages.updates.UpdateRepository.checkOnLaunch(this,binding.root)
         if (composeReturnPending && UiMotion.enabled()) {
@@ -338,6 +361,10 @@ class MainActivity : SimpleActivity() {
     }
 
     override fun onDestroy() {
+        if(catalogReceiverRegistered) {
+            unregisterReceiver(searchCatalogReceiver)
+            catalogReceiverRegistered=false
+        }
         contentResolver.unregisterContentObserver(inboxMessagesObserver)
         inboxSyncHandler.removeCallbacks(inboxSyncRunnable)
         semanticPending?.let{semanticDebounce.removeCallbacks(it)}
@@ -834,44 +861,69 @@ class MainActivity : SimpleActivity() {
     }
 
     private fun searchTextChanged(text: String, forceUpdate: Boolean = false) {
-        if (!binding.mainMenu.isSearchOpen && !forceUpdate) {
-            return
-        }
-
-        lastSearchedText = text
-        semanticPending?.let {semanticDebounce.removeCallbacks(it)}
+        if (!binding.mainMenu.isSearchOpen && !forceUpdate) return
+        lastSearchedText=text
+        semanticPending?.let{semanticDebounce.removeCallbacks(it)}
+        searchBackfillPending?.let{semanticDebounce.removeCallbacks(it)}
         semanticPending=null
-        binding.searchPlaceholder2.beGoneIf(text.length >= 2)
-        if (text.length >= 2) {
-            ensureBackgroundThread {
-                val searchQuery = "%$text%"
-                val messages = messagesDB.getMessagesWithText(searchQuery).sortedByDescending{it.id}
-                val conversations = conversationsDB.getConversationsWithText(searchQuery)
-                if (text == lastSearchedText) {
-                    showSearchResults(messages, conversations, text)
-                }
-            }
-            if(SemanticSearchPrefs.optedIn(this) && SemanticSearchPrefs.engineInstalled(this) && text.length>=3) {
-                // Debounced model inference. Exact keyword matches remain ranked first.
-                val pending=Runnable {
-                    ensureBackgroundThread {
-                        val meaning=runCatching{SemanticIndex.search(this,text)}
-                            .onFailure{android.util.Log.w("SemanticSearch","Local semantic inference failed",it)}
-                            .getOrDefault(emptyList())
-                        if(text==lastSearchedText && meaning.isNotEmpty()){
-                            val exact=messagesDB.getMessagesWithText("%$text%").sortedByDescending{it.id}
-                            val conversations=conversationsDB.getConversationsWithText("%$text%")
-                            val merged=(exact+meaning).distinctBy{(it.id shl 1) or if(it.isMMS)1L else 0L}
-                            showSearchResults(merged,conversations,text)
-                        }
-                    }
-                }
-                semanticPending=pending
-                semanticDebounce.postDelayed(pending,380)
-            }
-        } else {
+        searchBackfillPending=null
+        binding.searchPlaceholder2.beGoneIf(text.length>=2)
+        if(text.length<2) {
             binding.searchPlaceholder.beVisible()
             binding.searchResultsList.beGone()
+            return
+        }
+        SearchCatalogWorker.schedule(applicationContext)
+        // The catalog is independent of the conversation screen and covers the
+        // full SMS/MMS provider. Keep the legacy Room fallback only while the
+        // first catalog scan is still in progress.
+        ensureBackgroundThread {
+            val plan=SearchCatalog.plan(this,text)
+            val fromCatalog=SearchCatalog.search(this,plan)
+            val fromRoom=if(!SearchCatalog.ready(this) && !plan.contactFilter) {
+                messagesDB.getMessagesWithText("%$text%")
+            } else emptyList()
+            val messages=(fromCatalog+fromRoom)
+                .distinctBy{(it.id shl 1) or if(it.isMMS)1L else 0L}
+            val conversations=conversationsDB.getConversationsWithText("%$text%")
+            if(text==lastSearchedText)showSearchResults(messages,conversations,text)
+        }
+        if(!SearchCatalog.ready(this)) {
+            // Refresh the active query when initial provider ingestion finishes.
+            val pending=object:Runnable {
+                override fun run(){
+                    if(text!=lastSearchedText || !binding.mainMenu.isSearchOpen)return
+                    if(SearchCatalog.ready(this@MainActivity)){
+                        searchTextChanged(text,true)
+                    } else {
+                        SearchCatalogWorker.schedule(applicationContext)
+                        semanticDebounce.postDelayed(this,1300)
+                    }
+                }
+            }
+            searchBackfillPending=pending
+            semanticDebounce.postDelayed(pending,1300)
+        }
+        if(SemanticSearchPrefs.optedIn(this) &&
+            SemanticSearchPrefs.engineInstalled(this) && text.length>=3) {
+            val pending=Runnable {
+                ensureBackgroundThread {
+                    val meaning=runCatching{SemanticIndex.search(this,text)}
+                        .onFailure{android.util.Log.w("SemanticSearch","Local search failed",it)}
+                        .getOrDefault(emptyList())
+                    if(text==lastSearchedText && meaning.isNotEmpty()){
+                        val plan=SearchCatalog.plan(this,text)
+                        val exact=SearchCatalog.search(this,plan)
+                        val conversations=conversationsDB.getConversationsWithText("%$text%")
+                        val merged=(exact+meaning).distinctBy{
+                            (it.id shl 1) or if(it.isMMS)1L else 0L
+                        }
+                        showSearchResults(merged,conversations,text)
+                    }
+                }
+            }
+            semanticPending=pending
+            semanticDebounce.postDelayed(pending,430)
         }
     }
 
@@ -899,8 +951,11 @@ class MainActivity : SimpleActivity() {
             searchResults.add(searchResult)
         }
 
+        val threadTitles=conversationsDB.getAllForSearch()
+            .associate{it.threadId to it.title}
         messages.filterNot { SafeStore.isSafe(this,it.threadId) }.forEach { message ->
-            var recipient = message.senderName
+            var recipient = threadTitles[message.threadId]
+                ?.takeIf{it.isNotBlank()} ?: message.senderName
             if (recipient.isEmpty() && message.participants.isNotEmpty()) {
                 val participantNames = message.participants.map { it.name }
                 recipient = TextUtils.join(", ", participantNames)
