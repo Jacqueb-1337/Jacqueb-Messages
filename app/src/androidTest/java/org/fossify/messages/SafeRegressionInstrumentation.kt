@@ -147,6 +147,17 @@ class SafeRegressionInstrumentation : Instrumentation() {
         waitForIdleSync();SystemClock.sleep(600)
         val input=activity.findViewById<android.widget.EditText>(org.fossify.messages.R.id.thread_type_message)
         val rows=activity.findViewById<android.view.ViewGroup>(org.fossify.messages.R.id.thread_messages_list)
+        // Message loading is asynchronous. Exercise keyboard physics only once
+        // actual message views exist, rather than racing an arbitrary sleep.
+        val readyDeadline=SystemClock.uptimeMillis()+10_000L
+        var ready=false
+        while(!ready && SystemClock.uptimeMillis()<readyDeadline) {
+            onUi { ready=rows.childCount>0 && rows.width>0 && rows.height>0 }
+            if(!ready)SystemClock.sleep(50)
+        }
+        check(ready){"Main conversation messages did not finish loading"}
+        onUi { input.windowInsetsController?.hide(android.view.WindowInsets.Type.ime()) }
+        SystemClock.sleep(450);waitForIdleSync()
         val motion=activity.javaClass.getDeclaredField("reactiveKeyboard").apply{isAccessible=true}.get(activity)
             as org.fossify.messages.theming.ReactiveKeyboardMotion
         val velocity=motion.javaClass.getDeclaredField("inputVelocity").apply{isAccessible=true}
