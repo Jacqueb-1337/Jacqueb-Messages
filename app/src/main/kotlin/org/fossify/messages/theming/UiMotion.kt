@@ -276,8 +276,8 @@ object UiMotion {
             .translationY(origin.exactCenterY() - screen[1] - h / 2f)
             .scaleX((origin.width() / w).coerceIn(.23f, 1f))
             .scaleY((origin.height() / h).coerceIn(.08f, 1f))
-            .setDuration(290L)
-            .setInterpolator(PathInterpolator(.24f, .02f, .72f, .26f))
+            .setDuration(170L)
+            .setInterpolator(PathInterpolator(.25f, .05f, .60f, 1f))
             .withEndAction(finish).start()
     }
 

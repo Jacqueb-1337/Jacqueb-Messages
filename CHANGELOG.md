@@ -1,3 +1,9 @@
+## v0.9.19 - Seamless conversation return
+
+- Shortened main conversation exit transition from 290 ms to 170 ms.
+- Kept the underlying inbox visible throughout return animation by limiting window transparency to the conversation Activity.
+- Removed the opaque gray activity background exposed during the old shrink transition.
+
 ## v0.9.18 - Jacqueb Messages
 
 - Renamed app to Jacqueb Messages and prepared independent public source repository.

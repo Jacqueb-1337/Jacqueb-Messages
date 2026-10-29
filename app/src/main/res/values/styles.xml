@@ -2,6 +2,15 @@
 
     <style name="AppTheme" parent="AppTheme.Base" />
 
+    <!-- Keep the inbox composited beneath a shrinking conversation. This is
+         deliberately restricted to ThreadActivity, not the app as a whole. -->
+    <style name="AppTheme.ThreadTranslucent" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowIsFloating">false</item>
+    </style>
+
     <style name="roundedImageView" parent="">
         <item name="cornerFamily">rounded</item>
         <item name="cornerSize">@dimen/normal_margin</item>

@@ -299,9 +299,9 @@ class ThreadActivity : SimpleActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val origin = threadOrigin()
-        if (UiMotion.enabled() && origin != null) {
-            window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(UiTheme.color(this, "surface")))
-        }
+        // The window stays transparent; only the conversation surface is
+        // colored. Otherwise the shrinking card reveals a gray, opaque
+        // activity instead of the already-rendered inbox underneath.
         setContentView(binding.root)
         if (origin != null && UiMotion.enabled()) {
             binding.threadCoordinator.setBackgroundColor(UiTheme.color(this, "surface"))

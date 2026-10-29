@@ -79,6 +79,7 @@
 
         <activity
             android:name=".activities.ThreadActivity"
+            android:theme="@style/AppTheme.ThreadTranslucent"
             android:configChanges="orientation"
             android:exported="false"
             android:launchMode="singleTop"
