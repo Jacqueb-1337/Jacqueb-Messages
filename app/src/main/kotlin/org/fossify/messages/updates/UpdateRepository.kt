@@ -105,7 +105,7 @@ object UpdateRepository {
                         val a=assets.getJSONObject(j)
                         val uri=a.optString("browser_download_url")
                         val name=a.optString("name")
-                        if(name.endsWith(".apk",ignoreCase=true) && name.startsWith("Jacqueb-Messages-",true)
+                        if(name.endsWith("-release.apk",ignoreCase=true) && name.startsWith("Jacqueb-Messages-",true)
                             && uri.startsWith("https://github.com/Jacqueb-1337/Jacqueb-Messages/releases/download/")) {
                             download=uri;size=a.optLong("size",0L);break
                         }

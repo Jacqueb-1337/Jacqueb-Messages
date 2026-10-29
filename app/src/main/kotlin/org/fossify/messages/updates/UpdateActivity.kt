@@ -237,7 +237,13 @@ class UpdateActivity : SimpleActivity() {
         if(worker?.isAlive==true)return
         val file=apkFile(release)
         if(file.exists() && file.length()>0 && release.size>0 && file.length()==release.size) {
-            try { verifyAndInstall(file) } catch(e:Exception) { file.delete();status.text=e.message ?: "Invalid APK";primary.text="Download again" }
+            try { verifyAndInstall(file) } catch(e:Exception) {
+                status.text="Update cannot be installed: "+(e.message ?: "APK is incompatible")
+                transfer.visibility=View.VISIBLE
+                transfer.text="The download completed. Your existing app and data are unchanged."
+                primary.text="Check for compatible update"
+                target=null
+            }
         } else startDownload(release)
     }
 
@@ -250,6 +256,7 @@ class UpdateActivity : SimpleActivity() {
         worker=Thread({
             val file=apkFile(release)
             var connection: HttpURLConnection?=null
+            var verifyingDownloadedApk=false
             try {
                 require(uri.startsWith("https://github.com/Jacqueb-1337/Jacqueb-Messages/releases/download/"))
                 val previous=file.length().takeIf { it > 0 && (release.size==0L || it<release.size) } ?: 0L
@@ -293,6 +300,7 @@ class UpdateActivity : SimpleActivity() {
                 val wasPaused=stop.get()
                 if(!wasPaused) {
                     require(file.length()>0L && (release.size==0L || file.length()==release.size)) { "Incomplete download" }
+                    verifyingDownloadedApk=true
                     verifyPackage(file)
                 }
                 runOnUiThread {
@@ -312,8 +320,20 @@ class UpdateActivity : SimpleActivity() {
                 runOnUiThread {
                     if(isFinishing || isDestroyed)return@runOnUiThread
                     secondary.visibility=View.GONE
-                    primary.isEnabled=true;primary.text="Retry download"
-                    status.text=e.message ?: "Download failed"
+                    if(verifyingDownloadedApk) {
+                        primary.isEnabled=true
+                        primary.text="Check for compatible update"
+                        target=null
+                        status.text="Download finished but APK cannot be installed: "+(e.message ?: "Incompatible APK")
+                        transfer.visibility=View.VISIBLE
+                        transfer.text="The existing installation and messages were not changed."
+                        progress.isIndeterminate=false
+                        progress.setProgressCompat(100,true)
+                    } else {
+                        primary.isEnabled=true
+                        primary.text="Retry download"
+                        status.text="Download interrupted: "+(e.message ?: "Network failure")
+                    }
                 }
             } finally { connection?.disconnect() }
         },"jacqueb-update-download").also { it.start() }
