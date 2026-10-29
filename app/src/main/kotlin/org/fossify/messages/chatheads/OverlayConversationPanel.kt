@@ -456,7 +456,8 @@ class OverlayConversationPanel(
         val media: List<Media> = emptyList(),
         val mms: Boolean = false,
         val mmsId: Long = -1L,
-        val pendingMms: Boolean = false
+        val pendingMms: Boolean = false,
+        val sender: String = ""
     )
 
     fun refreshMessages() {
@@ -491,32 +492,38 @@ class OverlayConversationPanel(
                 }
             } catch (_: Exception) {}
             val providerHasSms = rows.isNotEmpty()
-            val awaitingMms = LinkedHashMap<Long, Long>()
-            try {
-                host.contentResolver.query(Telephony.Mms.CONTENT_URI,
-                    arrayOf(Telephony.Mms._ID, Telephony.Mms.DATE),
-                    "${Telephony.Mms.THREAD_ID} = ? AND ${Telephony.Mms.MESSAGE_TYPE} = ?",
-                    arrayOf(head.id.toString(), "130"), "${Telephony.Mms.DATE} DESC")?.use { cursor ->
-                    while (cursor.moveToNext() && awaitingMms.size < 80)
-                        awaitingMms[cursor.getLong(0)] = cursor.getLong(1) * 1000L
+            // Android Telephony is authoritative for MMS, even when Room hasn't
+            // synchronized a group-only conversation yet.
+            val representedMms=HashSet<Long>()
+            val providerMms=runCatching {
+                host.getMMS(threadId=head.id,sortOrder="date DESC LIMIT 80")
+            }.recoverCatching {
+                host.getMMS(threadId=head.id).sortedByDescending { it.millis() }.take(80)
+            }.getOrDefault(emptyList())
+            for(msg in providerMms) {
+                if(!msg.isMMS || !representedMms.add(msg.id)) continue
+                val media=msg.attachment?.attachments.orEmpty().map {
+                    Media(it.getUri(),it.mimetype)
                 }
-            } catch (_: Exception) {}
+                rows.add(SmsRow(msg.body,!msg.isReceivedMessage(),
+                    msg.millis(),media,true,msg.id,msg.isMmsDownloadPending,
+                    msg.senderName.ifBlank { msg.senderPhoneNumber }))
+            }
+            // Keep cached messages as fallback and deduplicate provider MMS.
             try {
                 for (msg in host.messagesDB.getRecentThreadMessages(head.id, 80)) {
                     if (!msg.isMMS && providerHasSms) continue
-                    val media = msg.attachment?.attachments.orEmpty().map {
-                        Media(it.getUri(), it.mimetype)
+                    if (msg.isMMS && !representedMms.add(msg.id)) continue
+                    val media=msg.attachment?.attachments.orEmpty().map {
+                        Media(it.getUri(),it.mimetype)
                     }
-                    rows.add(SmsRow(msg.body, !msg.isReceivedMessage(),
-                        msg.millis(), media, msg.isMMS, if (msg.isMMS) msg.id else -1L,
-                        msg.isMMS && awaitingMms.containsKey(msg.id)))
+                    rows.add(SmsRow(msg.body,!msg.isReceivedMessage(),
+                        msg.millis(),media,msg.isMMS,
+                        if(msg.isMMS)msg.id else -1L,
+                        msg.isMmsDownloadPending,
+                        msg.senderName.ifBlank { msg.senderPhoneNumber }))
                 }
-            } catch (_: Exception) {}
-            val represented = rows.map { it.mmsId }.toSet()
-            awaitingMms.forEach { (id, time) ->
-                if (id !in represented) rows.add(SmsRow("", false, time,
-                    mms = true, mmsId = id, pendingMms = true))
-            }
+            } catch (_:Exception) {}
             rows.sortBy { it.date }
             while (rows.size > 80) rows.removeAt(0)
             host.mainExecutor.execute {
@@ -588,7 +595,7 @@ class OverlayConversationPanel(
     ) {
         messages.removeAllViews()
         if (rows.isEmpty()) {
-            messages.addView(label("No SMS messages to display. MMS content is available in the full conversation.", 14f, false))
+            messages.addView(label("No messages to display yet. Try reopening this conversation.", 14f, false))
         }
         for ((index,row) in rows.withIndex()) {
             val line = LinearLayout(host).apply {
@@ -600,6 +607,15 @@ class OverlayConversationPanel(
                 setPadding(dp(13), dp(9), dp(13), dp(9))
                 background = rounded(if (row.sent) 0xFF1674F7.toInt()
                     else if (night()) 0xFF454545.toInt() else 0xFFF2F2F2.toInt(), 16)
+            }
+            if (groupConversation && !row.sent && row.sender.isNotBlank()) {
+                holder.addView(TextView(host).apply {
+                    text=row.sender
+                    textSize=12f
+                    setTypeface(null,Typeface.BOLD)
+                    setTextColor(if(night()) 0xFFB8D2FF.toInt() else 0xFF2564B3.toInt())
+                    setPadding(0,0,0,dp(5))
+                })
             }
             if (row.text.isNotBlank()) holder.addView(TextView(host).apply {
                 text = row.text

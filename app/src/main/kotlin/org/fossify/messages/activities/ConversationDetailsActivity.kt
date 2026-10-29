@@ -377,7 +377,7 @@ class ConversationDetailsActivity : SimpleActivity() {
             }
         }
         val notifications=ConversationCustomization.notificationsEnabled(this,id)
-        setting("Message notifications",if(notifications)"On · tap to turn off" else "Off · tap to turn on") {
+        setting("Message notifications",if(notifications)"On · tap to turn off" else "Off · also disables automatic chat heads") {
             ConversationCustomization.setNotificationsEnabled(this,id,!notifications)
             renderCustomSection()
         }

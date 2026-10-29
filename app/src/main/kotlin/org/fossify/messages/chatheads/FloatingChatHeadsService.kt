@@ -208,7 +208,7 @@ class FloatingChatHeadsService : Service() {
         }
         ensureForeground()
         if (intent?.action == ACTION_CLEAR) clearAllHeads()
-        if (intent?.action == ACTION_REMOVE_SAFE) {
+        if (intent?.action == ACTION_REMOVE_SAFE || intent?.action == ACTION_REMOVE_MUTED) {
             val removed=intent.getLongExtra(EXTRA_THREAD_ID,-1L)
             if(removed>0 && heads.remove(removed)!=null) {
                 if(selectedId==removed) {
@@ -226,7 +226,9 @@ class FloatingChatHeadsService : Service() {
         if (intent?.action == ACTION_ADD) {
             val id = intent.getLongExtra(EXTRA_THREAD_ID, -1L)
             val address = intent.getStringExtra(EXTRA_ADDRESS).orEmpty()
-            if (id > 0L && !org.fossify.messages.safe.SafeStore.isSafe(this,id)) {
+            if (id > 0L && !org.fossify.messages.safe.SafeStore.isSafe(this,id) &&
+                (!intent.getBooleanExtra(EXTRA_INCOMING,false) ||
+                    org.fossify.messages.helpers.ConversationCustomization.notificationsEnabled(this,id))) {
                 val title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { address }
                 val expanded = expandedStrip != null
                 val previous = selectedId
@@ -1904,6 +1906,7 @@ class FloatingChatHeadsService : Service() {
         }
 
         const val ACTION_REMOVE_SAFE = "com.jacqueb.messages.chatheads.REMOVE_SAFE"
+        const val ACTION_REMOVE_MUTED = "com.jacqueb.messages.chatheads.REMOVE_MUTED"
         const val ACTION_ADD = "me.jacqueb.messages.chatheads.ADD"
         const val ACTION_STOP = "me.jacqueb.messages.chatheads.STOP"
         const val ACTION_ARM = "me.jacqueb.messages.chatheads.ARM"
