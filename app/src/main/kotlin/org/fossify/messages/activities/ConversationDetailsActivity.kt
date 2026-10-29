@@ -272,7 +272,7 @@ class ConversationDetailsActivity : SimpleActivity() {
         holder.addView(section,0)
         val image=ImageView(this).apply {
             scaleType=ImageView.ScaleType.CENTER_CROP
-            contentDescription="Conversation picture. Tap to change."
+            contentDescription="Conversation picture (animated GIF supported). Tap to change."
             background=android.graphics.drawable.GradientDrawable().apply {
                 shape=android.graphics.drawable.GradientDrawable.OVAL
                 setColor(if(dark) 0xFF303034.toInt() else 0xFFE5E5E8.toInt())
@@ -281,7 +281,11 @@ class ConversationDetailsActivity : SimpleActivity() {
             setOnClickListener { iconPicker.launch("image/*") }
         }
         val photo=ConversationCustomization.photoFile(this,id)
-        if(photo!=null) Glide.with(this).load(photo).circleCrop().into(image)
+        if(photo!=null) {
+            if (ConversationCustomization.isAnimatedPhoto(photo))
+                Glide.with(this).asGif().load(photo).circleCrop().into(image)
+            else Glide.with(this).load(photo).circleCrop().into(image)
+        }
         else image.setImageResource(android.R.drawable.ic_menu_camera)
         val avatarRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         avatarRow.addView(image,LinearLayout.LayoutParams(dp(74),dp(74)).apply{rightMargin=dp(16)})
@@ -315,7 +319,7 @@ class ConversationDetailsActivity : SimpleActivity() {
         section.addView(avatarRow)
 
         val description=TextView(this).apply {
-            text="Overrides this conversation's picture in the inbox, floating heads, and new-message notifications. Your contacts aren't changed."
+            text="Choose a photo or animated GIF. GIFs play in the inbox and chat heads; notifications show a still frame. Your contacts aren't changed."
             textSize=12.5f
             setTextColor(sub)
             setPadding(0,dp(12),0,dp(14))

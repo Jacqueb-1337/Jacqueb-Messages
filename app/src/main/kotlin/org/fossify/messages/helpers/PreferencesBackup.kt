@@ -12,7 +12,7 @@ import java.io.File
  * app-lock secrets are exported. */
 object PreferencesBackup {
     const val FORMAT = "com.jacqueb.messages.preferences"
-    private const val LIMIT = 20 * 1024 * 1024
+    private const val LIMIT = 64 * 1024 * 1024
     private val forbidden = Regex("password|passcode|secret|token|oauth|api.?key|credential|private.?key|pin_code|fingerprint|biometric|session|cookie", RegexOption.IGNORE_CASE)
     private fun eligible(name: String): Boolean = name.matches(Regex("[A-Za-z0-9_.-]{1,120}")) && !forbidden.containsMatchIn(name)
     private fun includeName(name: String): Boolean = eligible(name) && (
@@ -49,12 +49,14 @@ object PreferencesBackup {
         root.put("preferences",group)
         val images = JSONObject()
         File(context.filesDir,"conversation_icons").listFiles()?.forEach { file ->
-            if (file.isFile && file.name.matches(Regex("[0-9]+[.]png")) && file.length() in 1..2_000_000)
+            val isGif=file.extension.equals("gif",ignoreCase=true)
+            val max=if(isGif) 8_388_608L else 2_000_000L
+            if (file.isFile && file.name.matches(Regex("[0-9]+[.](png|gif)")) && file.length() in 1..max)
                 images.put(file.name,Base64.encodeToString(file.readBytes(),Base64.NO_WRAP))
         }
         root.put("conversation_icons",images)
         val bytes = root.toString().toByteArray(Charsets.UTF_8)
-        require(bytes.size <= LIMIT) { "Preferences backup exceeds 20 MB" }
+        require(bytes.size <= LIMIT) { "Preferences backup exceeds 64 MB" }
         context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
             ?: error("Unable to write backup")
     }
@@ -99,9 +101,26 @@ object PreferencesBackup {
             val keys=images.keys()
             while(keys.hasNext()) {
                 val name=keys.next()
-                if (!name.matches(Regex("[0-9]+[.]png"))) continue
+                if (!name.matches(Regex("[0-9]+[.](png|gif)"))) continue
                 val data=Base64.decode(images.getString(name),Base64.DEFAULT)
-                if (data.size in 1..2_000_000) File(dir,name).writeBytes(data)
+                val isGif=name.endsWith(".gif")
+                val valid=if(isGif) ConversationCustomization.validGifBytes(data)
+                          else data.size in 1..2_000_000
+                if (valid) {
+                    val id=name.substringBefore('.').toLongOrNull() ?: continue
+                    val destination=File(dir,name)
+                    val tmp=File(dir,"$id.restore")
+                    try {
+                        tmp.writeBytes(data)
+                        if(!tmp.renameTo(destination)) {
+                            tmp.copyTo(destination,overwrite=true)
+                            tmp.delete()
+                        }
+                        File(dir,"$id.${if(isGif) "png" else "gif"}").delete()
+                        context.getSharedPreferences("conversation_personalization_v1",Context.MODE_PRIVATE)
+                            .edit().putLong("t_${id}_photo_updated",System.currentTimeMillis()).apply()
+                    } finally { tmp.delete() }
+                }
             }
         }
     }

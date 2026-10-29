@@ -263,8 +263,11 @@ abstract class BaseConversationsAdapter(
             conversationImage.clipToOutline=true
             val picture=ConversationCustomization.photoFile(activity,conversation.threadId)
             when {
-                picture!=null ->
-                    Glide.with(activity).load(picture).centerCrop().into(conversationImage)
+                picture!=null -> {
+                    if(ConversationCustomization.isAnimatedPhoto(picture))
+                        Glide.with(activity).asGif().load(picture).centerCrop().into(conversationImage)
+                    else Glide.with(activity).load(picture).centerCrop().into(conversationImage)
+                }
                 conversation.photoUri.isNullOrBlank() -> {
                     Glide.with(activity).clear(conversationImage)
                     conversationImage.setImageBitmap(UiTheme.avatarBitmap(

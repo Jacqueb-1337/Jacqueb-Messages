@@ -590,8 +590,8 @@ class FloatingChatHeadsService : Service() {
         val image = wrapper.findViewWithTag<ImageView>("chat-head-photo") ?: return
         val custom = ConversationCustomization.photoFile(this, head.id)
         val revision = conversationAvatarPrefs.getLong("t_${head.id}_photo_updated", 0L)
-        // Glide caches files by URI. A signature prevents an overwritten PNG
-        // at the same path from showing its old bitmap indefinitely.
+        // Glide caches files by URI. Revision/signature invalidates both
+        // PNG and GIF requests when a conversation's image changes.
         val bindingKey = if (custom != null)
             "custom:${head.id}:$revision:${custom.lastModified()}:${custom.length()}"
         else "contact:${head.id}:${head.address}"
@@ -600,7 +600,11 @@ class FloatingChatHeadsService : Service() {
         image.setImageDrawable(null)
         wrapper.tag = bindingKey
         if (custom != null) {
-            Glide.with(applicationContext).load(custom)
+            if(ConversationCustomization.isAnimatedPhoto(custom))
+                Glide.with(applicationContext).asGif().load(custom)
+                    .signature(com.bumptech.glide.signature.ObjectKey(bindingKey))
+                    .centerCrop().into(image)
+            else Glide.with(applicationContext).load(custom)
                 .signature(com.bumptech.glide.signature.ObjectKey(bindingKey))
                 .centerCrop().into(image)
         } else {

@@ -1,3 +1,12 @@
+## v0.10.3 - Animated conversation pictures
+
+- Per-conversation profile pictures now accept animated GIFs without converting them into static PNGs or losing frames and timing.
+- Custom GIFs animate in conversation-list avatars, the full/expanded/docked chat-head avatars, and the picture preview in conversation settings.
+- Static JPEG/PNG photos retain the established crop/resize workflow; switching between a GIF and a static photo removes the obsolete file.
+- Animated images are retained in app-private storage so they continue to work after restarts. Files larger than 8 MB or GIF canvases over 2048 pixels are rejected to bound resource use.
+- Preferences exports and imports now include original animated conversation avatars (backup size limit raised to 64 MB). Legacy PNG backups still import unchanged.
+- Notification icons use a static first frame because Android does not support animated notification bitmaps.
+
 ## v0.10.2 - Conversation cutout and reliable update checks
 
 - Opening and closing a main conversation now animates only a rounded clipping mask. Message contents, toolbar and composer remain at their original scale and position while the inbox underneath is revealed.
