@@ -147,7 +147,19 @@ object ConversationCustomization {
         prefs(context).getBoolean(key(id,"enabled"),true)
 
     fun setNotificationsEnabled(context:Context,id:Long,value:Boolean) {
-        prefs(context).edit().putBoolean(key(id,"enabled"),value).apply()
+        prefs(context).edit().putBoolean(key(id,"enabled"),value).commit()
+        if (!value && id > 0L) {
+            val manager=context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.cancel(id.hashCode())
+            val command=android.content.Intent(context,
+                org.fossify.messages.chatheads.FloatingChatHeadsService::class.java).apply {
+                action=org.fossify.messages.chatheads.FloatingChatHeadsService.ACTION_REMOVE_MUTED
+                putExtra(org.fossify.messages.chatheads.FloatingChatHeadsService.EXTRA_THREAD_ID,id)
+            }
+            // Only act on a running foreground service. Do not start another
+            // persistent overlay just to remove a disabled conversation.
+            org.fossify.messages.chatheads.FloatingChatHeadsService.dispatchToRunning(command)
+        }
     }
 
     fun hasCustomAlert(context: Context,id:Long):Boolean =

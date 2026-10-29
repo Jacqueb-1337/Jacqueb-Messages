@@ -1114,6 +1114,10 @@ fun Context.showReceivedMessageNotification(
     bitmap: Bitmap?,
     chatHeadVisualAlert: Boolean = false,
 ) {
+    // Per-thread Off overrides normal notifications and overlay alerts,
+    // including background delivery and any delayed main-thread dispatch.
+    if(!org.fossify.messages.helpers.ConversationCustomization.notificationsEnabled(this,threadId))
+        return
     if(org.fossify.messages.safe.SafeStore.isSafe(this,threadId)) {
         if(org.fossify.messages.safe.SafeStore.notificationMode(this)==org.fossify.messages.safe.SafeStore.ALERT_OFF)
             return
@@ -1139,6 +1143,8 @@ fun Context.showReceivedMessageNotification(
         return
     }
     Handler(Looper.getMainLooper()).post {
+        if (!org.fossify.messages.helpers.ConversationCustomization.notificationsEnabled(this,threadId))
+            return@post
         notificationHelper.showMessageNotification(
             messageId = messageId,
             isMms = isMms,
