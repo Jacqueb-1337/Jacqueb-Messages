@@ -40,7 +40,7 @@ object PendingMmsDownloads {
                 ?: (Telephony.Sms.getDefaultSmsPackage(context) == context.packageName)
         } else Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
         if (!isDefaultSms)
-            return "Messages needs to be selected as the default SMS app to download MMS."
+            return DEFAULT_SMS_REQUIRED
         val uri = Uri.withAppendedPath(Telephony.Mms.CONTENT_URI, id.toString())
         try {
             val fields = arrayOf(
