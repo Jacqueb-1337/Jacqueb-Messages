@@ -1,46 +1,34 @@
-## v0.10.4 - Remove inherited false counterfeit-app warning
+# Messages changelog
 
-- Fixed the recurrent incorrect "You are using a fake version" dialog on our legitimate `com.jacqueb.messages` release.
-- Root cause: Fossify Commons 7.1.3 checks its original `org.fossify.` package namespace and randomly warns on other namespaces, even if they are properly signed independent forks. The earlier launch-count workaround could not stop the random condition.
-- Pinned our own reproducible Commons AAR variant, with a brand-specific adjustment limited to the three affected package-namespace checks. The remaining Commons implementation, dependencies and Android package/signing verification are unchanged.
-- Removed the fragile launch-counter workaround; the app retains its normal app-run counters and existing settings.
-- Added a verifiable patch-generation script and source attribution for the GPL-derived Commons library.
+Changes are listed in plain language as **Added**, **Fixed**, or **Removed**. Technical implementation details belong in commits and developer documentation, not release notes.
 
-## v0.10.3 - Animated conversation pictures
+## v0.10.4
 
-- Per-conversation profile pictures now accept animated GIFs without converting them into static PNGs or losing frames and timing.
-- Custom GIFs animate in conversation-list avatars, the full/expanded/docked chat-head avatars, and the picture preview in conversation settings.
-- Static JPEG/PNG photos retain the established crop/resize workflow; switching between a GIF and a static photo removes the obsolete file.
-- Animated images are retained in app-private storage so they continue to work after restarts. Files larger than 8 MB or GIF canvases over 2048 pixels are rejected to bound resource use.
-- Preferences exports and imports now include original animated conversation avatars (backup size limit raised to 64 MB). Legacy PNG backups still import unchanged.
-- Notification icons use a static first frame because Android does not support animated notification bitmaps.
+- Fixed: The incorrect "fake version" warning no longer appears.
 
-## v0.10.2 - Conversation cutout and reliable update checks
+## v0.10.3
 
-- Opening and closing a main conversation now animates only a rounded clipping mask. Message contents, toolbar and composer remain at their original scale and position while the inbox underneath is revealed.
-- Automatic update checking is scheduled by Android about every six hours even while the app is backgrounded, subject to Android battery/network scheduling.
-- Successful checks, network errors and update availability are recorded and shown in Settings and the update center; a foreground automatic check also briefly displays its result.
-- A new eligible version sends a system notification when notification permission is enabled, opening the full release-notes screen. Routine up-to-date checks do not generate system notifications.
-- A failed attempt no longer starts the six-hour success cooldown; foreground attempts back off for twenty minutes after failures.
-- Keeps the official Messages app name, com.jacqueb.messages package, and production signing key.
+- Added: Animated GIFs for conversation pictures in the inbox and chat heads.
+- Added: GIF profile pictures to preferences backups.
 
-## v0.10.1 - Inbox and messaging defaults
+## v0.10.2
 
-- Inbox conversation rows place the Draft indicator to the right of the preview, instead of before the text.
-- Draft text defaults to orange (#FF8A00), distinct from the normal theme accent.
-- Theme Studio adds a Draft indicator text color control, accessible by tapping the Draft label in the inbox preview.
-- The Draft indicator stays visible beside long, truncated message previews.
-- New installs default to group MMS (replies stay in one group conversation), 2 MB MMS image resizing, and enabled Trash for deleted messages. Existing saved choices remain unchanged.
-- Trash is now always accessible directly in the main three-dot menu.
-- This release keeps the Messages app name, com.jacqueb.messages package ID, and existing production signing key.
+- Fixed: Conversation open/close animations no longer shrink messages.
+- Fixed: Automatic update checks run in the background and show the last check result.
+- Added: Notifications when an update is available.
 
-## v0.10.0 - Messages (Jacqueb Messages project; new package)
+## v0.10.1
 
-- Permanent Android package ID `com.jacqueb.messages`, with clean Android version names.
-- New full-screen update center with stable, beta, and alpha channels.
-- Optional automatic update checking, manual Check for Updates, and visible release history.
-- Download progress and pause/resume, APK package and signing verification, Android-confirmed installation.
-- Automatic recognition and restore of v0.9.20 preferences exports.
+- Added: Customizable orange Draft labels beside message previews.
+- Added: Trash to the main menu.
+- Fixed: New installs now default to group MMS, 2 MB image resizing, and Trash enabled.
+
+## v0.10.0
+
+- Added: A full-screen updater with stable, beta, and alpha channels.
+- Added: Update downloads with pause/resume and release history.
+- Added: Preferences import from the previous Messages app.
+- Fixed: The app name, version, and package ID.
 
 ## v0.9.20 - Migration bridge (legacy package)
 

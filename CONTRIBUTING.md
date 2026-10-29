@@ -1,3 +1,9 @@
+## Release notes for Messages
+
+Keep release notes short and user-facing, usually 1–4 bullets per version. Every bullet starts with **Added:**, **Fixed:** or **Removed:** and says what changed for users. Avoid library names, package IDs, internal implementation details, test logs, build metadata and long explanations. Keep technical notes in commits or developer docs instead.
+
+The in-app updater reads GitHub Release descriptions and shows them for every version between the installed and latest release, so use the same concise bullets on GitHub as in `CHANGELOG.md` and `release-notes/`.
+
 ### Reporting
 Before you report something, read the reporting rules [here](https://github.com/FossifyOrg/General-Discussion#how-do-i-suggest-an-improvement-ask-a-question-or-report-an-issue) please.
 
