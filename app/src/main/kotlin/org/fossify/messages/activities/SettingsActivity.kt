@@ -52,12 +52,21 @@ import org.fossify.messages.updates.UpdateRepository
 import org.fossify.messages.updates.UpdateActivity
 import org.fossify.messages.BuildConfig
 import org.fossify.messages.theming.UiTheme
+import org.fossify.messages.search.SemanticSearchPrefs
+import org.fossify.messages.search.SemanticEngine
+import org.fossify.messages.search.SemanticModelManager
+import org.fossify.messages.search.SemanticIndex
+import org.fossify.messages.search.SemanticIndexWorker
+import androidx.work.WorkManager
+import java.util.concurrent.atomic.AtomicBoolean
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
 import androidx.appcompat.app.AlertDialog
 
 class SettingsActivity : SimpleActivity() {
+    private var semanticSettingsExpanded = false
     private var blockedNumbersAtPause = -1
     private var recycleBinMessages = 0
     private val messagesFileType = "application/json"
@@ -91,6 +100,8 @@ class SettingsActivity : SimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        semanticSettingsExpanded=savedInstanceState?.getBoolean("semanticExpanded")
+            ?: intent.getBooleanExtra("open_semantic_settings",false)
         setContentView(binding.root)
 
         setupEdgeToEdge(padBottomImeAndSystem = listOf(binding.settingsNestedScrollview))
@@ -100,6 +111,10 @@ class SettingsActivity : SimpleActivity() {
         )
     }
 
+    override fun onSaveInstanceState(outState:Bundle){
+        outState.putBoolean("semanticExpanded",semanticSettingsExpanded)
+        super.onSaveInstanceState(outState)
+    }
     override fun onResume() {
         super.onResume()
         setupTopAppBar(binding.settingsAppbar, NavigationIcon.Arrow)
@@ -127,6 +142,7 @@ class SettingsActivity : SimpleActivity() {
         setupMessagesExport()
         setupMessagesImport()
         setupUpdateSettings()
+        setupSemanticSearchSettings()
         updateTextColors(binding.settingsNestedScrollview)
 
         if (
@@ -147,6 +163,159 @@ class SettingsActivity : SimpleActivity() {
         ).forEach {
             it.setTextColor(getProperPrimaryColor())
         }
+    }
+
+    private fun setupSemanticSearchSettings() {
+        val holder=binding.settingsNestedScrollview.getChildAt(0) as? LinearLayout ?: return
+        holder.findViewWithTag<android.view.View>("messages_semantic_section")?.let {holder.removeView(it)}
+        val px=(20*resources.displayMetrics.density).toInt()
+        val section=LinearLayout(this).apply {
+            tag="messages_semantic_section"
+            orientation=LinearLayout.VERTICAL
+            setPadding(px,px,px,px)
+        }
+        fun item(t:String,size:Float=15f):TextView=TextView(this).apply {
+            text=t; textSize=size
+            setTextColor(UiTheme.color(this@SettingsActivity,"title"))
+            setPadding(0,px/3,0,px/3)
+        }
+        section.addView(item("SEMANTIC SEARCH",13f).apply{
+            setTextColor(UiTheme.color(this@SettingsActivity,"accent"))
+        })
+        val summary=if(SemanticSearchPrefs.optedIn(this)) {
+            if(SemanticSearchPrefs.engineInstalled(this))
+                "Enabled • "+SemanticSearchPrefs.selected(this).label
+            else "Enabled • download engine"
+        } else "Off • optional"
+        section.addView(item("Semantic search: "+summary+"   "+if(semanticSettingsExpanded)"▴" else "▾",16f).apply{
+            setOnClickListener {
+                semanticSettingsExpanded=!semanticSettingsExpanded
+                setupSemanticSearchSettings()
+            }
+        })
+        if(!semanticSettingsExpanded){
+            holder.addView(section,0)
+            return
+        }
+        val selected=SemanticSearchPrefs.selected(this)
+        val installed=SemanticModelManager.installed(this,selected)
+        section.addView(item("Search Engine: "+selected.label,17f).apply{
+            setOnClickListener {
+                val options=SemanticEngine.entries.map{e->
+                    e.label+" (about "+e.sizeMb+" MB)\n"+e.description+
+                        if(SemanticModelManager.installed(this@SettingsActivity,e))"  |  Installed" else ""
+                }.toTypedArray()
+                AlertDialog.Builder(this@SettingsActivity).setCustomTitle(item("Choose Semantic Search Engine",20f).apply{setPadding(px,px,px,px)})
+                    .setSingleChoiceItems(options,SemanticEngine.entries.indexOf(selected)){dialog,which->
+                        SemanticSearchPrefs.select(this@SettingsActivity,SemanticEngine.entries[which])
+                        dialog.dismiss()
+                        setupSemanticSearchSettings()
+                    }.setNegativeButton("Cancel",null).show()
+            }
+        })
+        section.addView(item("Both engines run entirely on-device. Fast uses MiniLM L3; Accurate uses MiniLM L6. The larger engine may return more relevant matches but takes more processing. No AI is used for other features.",13f))
+        val consent=SwitchCompat(this).apply {
+            text="Enable semantic search (optional)"
+            isChecked=SemanticSearchPrefs.optedIn(this@SettingsActivity)
+            setOnCheckedChangeListener{_,checked->
+                if(checked)SemanticSearchPrefs.optIn(this@SettingsActivity)
+                else SemanticSearchPrefs.disable(this@SettingsActivity)
+                setupSemanticSearchSettings()
+            }
+        }
+        section.addView(consent)
+        section.addView(item(
+            if(installed)"Model installed | "+SemanticIndex.count(this,selected)+" indexed messages"
+            else "Engine download required (about "+selected.sizeMb+" MB plus tokenizer)",13f))
+        section.addView(item(if(installed)"Remove downloaded "+selected.label+" engine"
+            else "Download "+selected.label+" Semantic Search Engine",16f).apply {
+            setOnClickListener {
+                if(installed)AlertDialog.Builder(this@SettingsActivity)
+                    .setCustomTitle(item("Remove downloaded engine?",20f).apply{setPadding(px,px,px,px)})
+                    .setMessage("Remove the model and its local index? Regular search will keep working.")
+                    .setNegativeButton("Cancel",null)
+                    .setPositiveButton("Remove"){_,_->
+                        SemanticModelManager.delete(this@SettingsActivity,selected)
+                        setupSemanticSearchSettings()
+                    }.show()
+                else {
+                    if(!SemanticSearchPrefs.optedIn(this@SettingsActivity)){
+                        AlertDialog.Builder(this@SettingsActivity).setCustomTitle(item("Opt in first",20f).apply{setPadding(px,px,px,px)})
+                            .setMessage("Enable semantic search before downloading an engine.")
+                            .setPositiveButton("OK",null).show()
+                    } else AlertDialog.Builder(this@SettingsActivity)
+                        .setCustomTitle(item("Download "+selected.label+" Search Engine?",20f).apply{setPadding(px,px,px,px)})
+                        .setMessage("Download about "+selected.sizeMb+" MB from Hugging Face. Only the model and tokenizer are downloaded. Your messages and queries stay on this device.")
+                        .setNegativeButton("Cancel",null)
+                        .setPositiveButton("Download"){_,_->
+                            val cancel=AtomicBoolean(false)
+                            val progressBar=ProgressBar(this@SettingsActivity,null,android.R.attr.progressBarStyleHorizontal).apply{max=100}
+                            val title=item("Preparing download...",14f)
+                            val view=LinearLayout(this@SettingsActivity).apply{
+                                orientation=LinearLayout.VERTICAL
+                                setPadding(px,px,px,px)
+                                addView(title)
+                                addView(progressBar,LinearLayout.LayoutParams(-1,px*2))
+                            }
+                            val progressDialog=AlertDialog.Builder(this@SettingsActivity)
+                                .setCustomTitle(item("Semantic Search Engine",20f).apply{setPadding(px,px,px,px)})
+                                .setView(view)
+                                .setNegativeButton("Cancel"){_,_->cancel.set(true)}
+                                .create()
+                            progressDialog.setCanceledOnTouchOutside(false)
+                            progressDialog.show()
+                            Thread({
+                                val error=runCatching{
+                                    SemanticModelManager.install(applicationContext,selected,cancel){percent,description->
+                                        runOnUiThread{
+                                            if(!isFinishing&&!isDestroyed){
+                                                progressBar.progress=percent
+                                                title.text=description
+                                            }
+                                        }
+                                    }
+                                }.exceptionOrNull()
+                                if(error==null)SemanticIndexWorker.schedule(applicationContext)
+                                runOnUiThread{
+                                    progressDialog.dismiss()
+                                    if(!isFinishing&&!isDestroyed){
+                                        if(error!=null) AlertDialog.Builder(this@SettingsActivity)
+                                            .setCustomTitle(item("Engine download incomplete",20f).apply{setPadding(px,px,px,px)})
+                                            .setMessage(error.message ?: "Download failed. Try again.")
+                                            .setPositiveButton("OK",null).show()
+                                        setupSemanticSearchSettings()
+                                    }
+                                }
+                            },"SemanticEngineDownload").start()
+                        }.show()
+                }
+            }
+        })
+        if(installed) {
+            section.addView(item("Rebuild search index",16f).apply{
+                setOnClickListener{
+                    SemanticIndex.clear(this@SettingsActivity)
+                    SemanticIndexWorker.schedule(this@SettingsActivity)
+                    android.widget.Toast.makeText(this@SettingsActivity,
+                        "Indexing scheduled. New results appear as indexing completes.",android.widget.Toast.LENGTH_LONG).show()
+                    setupSemanticSearchSettings()
+                }
+            })
+            section.addView(item("Delete semantic search index",15f).apply{
+                setOnClickListener {
+                    SemanticIndex.clear(this@SettingsActivity)
+                    setupSemanticSearchSettings()
+                }
+            })
+        }
+        section.addView(item("Indexing occurs locally in the background when enabled. Disabling deletes search vectors; downloaded engines can be deleted separately.",12f))
+        section.addView(item("Don't ask again when searching",14f).apply{
+            setOnClickListener{
+                SemanticSearchPrefs.dismiss(this@SettingsActivity)
+                setupSemanticSearchSettings()
+            }
+        })
+        holder.addView(section,0)
     }
 
     private fun setupUpdateSettings() {

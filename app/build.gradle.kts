@@ -72,6 +72,12 @@ android {
             applicationIdSuffix = ".dev"
         }
         release {
+            // Ship only ARM binaries in public APKs. The optional semantic
+            // search runtime otherwise adds large x86 emulator libraries.
+            // Preserve 32-bit ARM support for older phones.
+            ndk {
+                abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
+            }
             // R8 exhausted Windows' available native memory during release
             // builds. Preserve an installable release APK until CI can handle
             // minification safely. Signing is unaffected.
@@ -150,6 +156,8 @@ dependencies {
     implementation(libs.androidx.swiperefreshlayout)
     implementation(libs.androidx.constraintlayout)
     implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.24.3")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("com.google.android.material:material:1.14.0")
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.process)

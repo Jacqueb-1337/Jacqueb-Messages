@@ -65,6 +65,9 @@ import org.fossify.messages.BuildConfig
 import org.fossify.messages.R
 import org.fossify.messages.safe.SafeStore
 import org.fossify.messages.safe.SafeActivity
+import org.fossify.messages.search.SemanticSearchPrefs
+import org.fossify.messages.search.SemanticIndex
+import org.fossify.messages.search.SemanticIndexWorker
 import org.fossify.messages.adapters.ConversationsAdapter
 import org.fossify.messages.adapters.SearchResultsAdapter
 import org.fossify.messages.databinding.ActivityMainBinding
@@ -96,6 +99,9 @@ class MainActivity : SimpleActivity() {
     private var storedTextColor = 0
     private var storedFontSize = 0
     private var lastSearchedText = ""
+    private var semanticPromptShownForCurrentSearch = false
+    private val semanticDebounce=android.os.Handler(android.os.Looper.getMainLooper())
+    private var semanticPending:Runnable?=null
     private var bus: EventBus? = null
 
     private val binding by viewBinding(ActivityMainBinding::inflate)
@@ -184,6 +190,7 @@ class MainActivity : SimpleActivity() {
     private var composeReturnPending = false
 
     override fun onResume() {
+        SemanticIndexWorker.schedule(applicationContext)
         super.onResume()
         org.fossify.messages.updates.UpdateRepository.schedule(applicationContext)
         org.fossify.messages.updates.UpdateRepository.checkOnLaunch(this,binding.root)
@@ -332,6 +339,7 @@ class MainActivity : SimpleActivity() {
     override fun onDestroy() {
         contentResolver.unregisterContentObserver(inboxMessagesObserver)
         inboxSyncHandler.removeCallbacks(inboxSyncRunnable)
+        semanticPending?.let{semanticDebounce.removeCallbacks(it)}
         super.onDestroy()
         bus?.unregister(this)
     }
@@ -380,10 +388,12 @@ class MainActivity : SimpleActivity() {
         binding.mainMenu.setupMenu()
 
         binding.mainMenu.onSearchClosedListener = {
+            semanticPromptShownForCurrentSearch = false
             fadeOutSearch()
         }
 
         binding.mainMenu.onSearchTextChangedListener = { text ->
+            if (text.isNotBlank()) maybeOfferSemanticSearch()
             if (text.isNotEmpty()) {
                 if (binding.searchHolder.alpha < 1f) {
                     binding.searchHolder.fadeIn()
@@ -802,21 +812,61 @@ class MainActivity : SimpleActivity() {
             .build()
     }
 
+    /**
+     * Ask once per search session, then again on later searches if they
+     * selected Not now. Dismiss and opt-in permanently stop the prompt.
+     */
+    private fun maybeOfferSemanticSearch() {
+        if (semanticPromptShownForCurrentSearch || !SemanticSearchPrefs.shouldOffer(this)) return
+        semanticPromptShownForCurrentSearch = true
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Enable semantic search?")
+            .setMessage("Find messages by meaning, not just exact words. Semantic search is optional and runs on your phone. It requires a separate Semantic Search Engine download. Regular search works without it.")
+            .setNegativeButton("Not now",null)
+            .setNeutralButton("Don't ask again") { _,_ -> SemanticSearchPrefs.dismiss(this) }
+            .setPositiveButton("Enable") { _,_ ->
+                SemanticSearchPrefs.optIn(this)
+                startActivity(Intent(this,SettingsActivity::class.java).apply{
+                    putExtra("open_semantic_settings",true)
+                })
+            }.show()
+    }
+
     private fun searchTextChanged(text: String, forceUpdate: Boolean = false) {
         if (!binding.mainMenu.isSearchOpen && !forceUpdate) {
             return
         }
 
         lastSearchedText = text
+        semanticPending?.let {semanticDebounce.removeCallbacks(it)}
+        semanticPending=null
         binding.searchPlaceholder2.beGoneIf(text.length >= 2)
         if (text.length >= 2) {
             ensureBackgroundThread {
                 val searchQuery = "%$text%"
-                val messages = messagesDB.getMessagesWithText(searchQuery)
+                val messages = messagesDB.getMessagesWithText(searchQuery).sortedByDescending{it.id}
                 val conversations = conversationsDB.getConversationsWithText(searchQuery)
                 if (text == lastSearchedText) {
                     showSearchResults(messages, conversations, text)
                 }
+            }
+            if(SemanticSearchPrefs.optedIn(this) && SemanticSearchPrefs.engineInstalled(this) && text.length>=3) {
+                // Debounced model inference. Exact keyword matches remain ranked first.
+                val pending=Runnable {
+                    ensureBackgroundThread {
+                        val meaning=runCatching{SemanticIndex.search(this,text)}
+                            .onFailure{android.util.Log.w("SemanticSearch","Local semantic inference failed",it)}
+                            .getOrDefault(emptyList())
+                        if(text==lastSearchedText && meaning.isNotEmpty()){
+                            val exact=messagesDB.getMessagesWithText("%$text%").sortedByDescending{it.id}
+                            val conversations=conversationsDB.getConversationsWithText("%$text%")
+                            val merged=(exact+meaning).distinctBy{(it.id shl 1) or if(it.isMMS)1L else 0L}
+                            showSearchResults(merged,conversations,text)
+                        }
+                    }
+                }
+                semanticPending=pending
+                semanticDebounce.postDelayed(pending,380)
             }
         } else {
             binding.searchPlaceholder.beVisible()
@@ -848,7 +898,7 @@ class MainActivity : SimpleActivity() {
             searchResults.add(searchResult)
         }
 
-        messages.filterNot { SafeStore.isSafe(this,it.threadId) }.sortedByDescending { it.id }.forEach { message ->
+        messages.filterNot { SafeStore.isSafe(this,it.threadId) }.forEach { message ->
             var recipient = message.senderName
             if (recipient.isEmpty() && message.participants.isNotEmpty()) {
                 val participantNames = message.participants.map { it.name }

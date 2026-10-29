@@ -16,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 object PendingMmsDownloads {
     private val active = ConcurrentHashMap<Long, Long>()
     private const val MAX_IN_PROGRESS_MS = 90_000L
+    const val DEFAULT_SMS_REQUIRED = "Set Messages as your default SMS app to download MMS."
 
     fun isDownloading(id: Long): Boolean {
         val started = active[id] ?: return false
@@ -30,8 +31,16 @@ object PendingMmsDownloads {
      * Android telephony, NOT that a carrier download has completed. */
     fun request(context: Context, id: Long): String? {
         if (isDownloading(id)) return null
-        if (Telephony.Sms.getDefaultSmsPackage(context) != context.packageName)
-            return "Set Messages as your default SMS app to download MMS."
+        // Android 10+ assigns default SMS authority through RoleManager.
+        // On some OEM ROMs Telephony.Sms.getDefaultSmsPackage() returns null or
+        // stale data even though the role is correctly held by this app.
+        val isDefaultSms = if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+            roleManager?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS)
+                ?: (Telephony.Sms.getDefaultSmsPackage(context) == context.packageName)
+        } else Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
+        if (!isDefaultSms)
+            return "Messages needs to be selected as the default SMS app to download MMS."
         val uri = Uri.withAppendedPath(Telephony.Mms.CONTENT_URI, id.toString())
         try {
             val fields = arrayOf(

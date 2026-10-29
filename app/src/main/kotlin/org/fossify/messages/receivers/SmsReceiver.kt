@@ -27,6 +27,7 @@ import org.fossify.messages.helpers.refreshConversations
 import org.fossify.messages.helpers.refreshMessages
 import org.fossify.messages.models.Message
 import org.fossify.messages.chatheads.IncomingChatHeads
+import org.fossify.messages.search.SemanticIndexWorker
 
 class SmsReceiver : BroadcastReceiver() {
 
@@ -137,6 +138,7 @@ class SmsReceiver : BroadcastReceiver() {
         )
 
         context.messagesDB.insertOrUpdate(message)
+        SemanticIndexWorker.schedule(context)
 
         if (context.shouldUnarchive()) {
             context.updateConversationArchivedStatus(threadId, false)

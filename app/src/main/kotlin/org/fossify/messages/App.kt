@@ -24,6 +24,11 @@ class App : FossifyApp() {
 
     override fun onCreate() {
         super.onCreate()
+        // Commons persists the application ID independently. Older installs
+        // may retain the upstream/fork ID, causing its icon-color handler to
+        // enable launcher aliases in the wrong package and throw
+        // IllegalArgumentException. Keep it aligned with our real package.
+        if (baseConfig.appId != packageName) baseConfig.appId = packageName
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // Upstream Commons incorrectly warns independent forks that they
             // are "fake" on randomized activity launches when the launch

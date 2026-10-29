@@ -58,6 +58,7 @@ import org.fossify.messages.messaging.sendMessageCompat
 import java.text.DateFormat
 import java.util.Date
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Focusable, in-overlay conversation (not an Android Activity or native bubble).
@@ -73,6 +74,9 @@ class OverlayConversationPanel(
     heads: List<FloatingChatHeadsService.Head>
 ) : FrameLayout(host) {
     private val queryVersion = AtomicInteger()
+    // The full MMS query can take longer than the periodic refresh interval.
+    // Never obsolete an unfinished query every 1.6 seconds.
+    private val refreshInFlight = AtomicBoolean(false)
     private var selectedIndex = heads.indexOfFirst { it.id == head.id }.coerceAtLeast(0)
     private var selectedNotch: View? = null
     private var motionCard: View? = null
@@ -461,8 +465,10 @@ class OverlayConversationPanel(
     )
 
     fun refreshMessages() {
+        if (disposed || !refreshInFlight.compareAndSet(false, true)) return
         val serial = queryVersion.incrementAndGet()
         Thread {
+          try {
             var isGroup = false
             var recipients = emptyList<String>()
             val rows = ArrayList<SmsRow>()
@@ -490,16 +496,36 @@ class OverlayConversationPanel(
                             cursor.getLong(date)))
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (error: Exception) {
+                android.util.Log.w("MessagesHeads", "SMS provider query failed", error)
+            }
             val providerHasSms = rows.isNotEmpty()
             // Android Telephony is authoritative for MMS, even when Room hasn't
             // synchronized a group-only conversation yet.
             val representedMms=HashSet<Long>()
-            val providerMms=runCatching {
-                host.getMMS(threadId=head.id,sortOrder="date DESC LIMIT 80")
-            }.recoverCatching {
-                host.getMMS(threadId=head.id).sortedByDescending { it.millis() }.take(80)
-            }.getOrDefault(emptyList())
+            // Read a small, bounded batch of provider IDs. The old code hydrated
+            // all MMS in a thread before limiting to 80, which made the refresh
+            // perpetually miss its deadline on busy group conversations.
+            val recentMmsIds=ArrayList<Long>(24)
+            try {
+                host.contentResolver.query(Telephony.Mms.CONTENT_URI,
+                    arrayOf(Telephony.Mms._ID), "thread_id = ?",
+                    arrayOf(head.id.toString()), "date DESC")?.use { cursor ->
+                    val idColumn=cursor.getColumnIndexOrThrow(Telephony.Mms._ID)
+                    while(cursor.moveToNext() && recentMmsIds.size<24)
+                        recentMmsIds.add(cursor.getLong(idColumn))
+                }
+            } catch(error:Exception) {
+                android.util.Log.w("MessagesHeads","MMS ID lookup failed",error)
+            }
+            val providerMms=recentMmsIds.mapNotNull { id ->
+                try {
+                    host.getMMS(Uri.withAppendedPath(Telephony.Mms.CONTENT_URI,id.toString()))
+                } catch(error:Exception) {
+                    android.util.Log.w("MessagesHeads","MMS hydration failed",error)
+                    null
+                }
+            }
             for(msg in providerMms) {
                 if(!msg.isMMS || !representedMms.add(msg.id)) continue
                 val media=msg.attachment?.attachments.orEmpty().map {
@@ -523,10 +549,13 @@ class OverlayConversationPanel(
                         msg.isMmsDownloadPending,
                         msg.senderName.ifBlank { msg.senderPhoneNumber }))
                 }
-            } catch (_:Exception) {}
+            } catch (error:Exception) {
+                android.util.Log.w("MessagesHeads", "Message cache query failed", error)
+            }
             rows.sortBy { it.date }
             while (rows.size > 80) rows.removeAt(0)
             host.mainExecutor.execute {
+                refreshInFlight.set(false)
                 if (disposed || serial != queryVersion.get()) return@execute
                 groupConversation = isGroup
                 resolvedRecipients = recipients
@@ -551,6 +580,16 @@ class OverlayConversationPanel(
                     if (added && sendPending) scrollToBottomAfterSend = false
                 }
             }
+          } catch (error:Exception) {
+            android.util.Log.e("MessagesHeads","Conversation refresh failed",error)
+            host.mainExecutor.execute {
+                refreshInFlight.set(false)
+                if (!disposed && serial == queryVersion.get() && lastRenderedRows == null) {
+                    lastRenderedRows = emptyList()
+                    render(emptyList())
+                }
+            }
+          }
         }.start()
     }
 
@@ -660,7 +699,11 @@ class OverlayConversationPanel(
                         Thread {
                             val error = PendingMmsDownloads.request(host, row.mmsId)
                             post {
-                                if (error != null) android.widget.Toast.makeText(host,
+                                if (error == PendingMmsDownloads.DEFAULT_SMS_REQUIRED) {
+                                    host.startActivity(Intent(host,
+                                        org.fossify.messages.activities.DefaultSmsRoleActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                } else if (error != null) android.widget.Toast.makeText(host,
                                     error, android.widget.Toast.LENGTH_LONG).show()
                                 refreshMessages()
                             }
@@ -819,7 +862,11 @@ class OverlayConversationPanel(
             } catch (_: Exception) {}
         }
         disposed = false
+        if (lastRenderedRows == null && messages.childCount == 0) {
+            messages.addView(label("Loading messages...",14f,false))
+        }
         refreshHandler.removeCallbacks(refreshTick)
+        refreshMessages()
         refreshHandler.postDelayed(refreshTick, 1600L)
     }
 
