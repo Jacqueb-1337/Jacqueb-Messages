@@ -1,3 +1,11 @@
+## v0.10.4 - Remove inherited false counterfeit-app warning
+
+- Fixed the recurrent incorrect "You are using a fake version" dialog on our legitimate `com.jacqueb.messages` release.
+- Root cause: Fossify Commons 7.1.3 checks its original `org.fossify.` package namespace and randomly warns on other namespaces, even if they are properly signed independent forks. The earlier launch-count workaround could not stop the random condition.
+- Pinned our own reproducible Commons AAR variant, with a brand-specific adjustment limited to the three affected package-namespace checks. The remaining Commons implementation, dependencies and Android package/signing verification are unchanged.
+- Removed the fragile launch-counter workaround; the app retains its normal app-run counters and existing settings.
+- Added a verifiable patch-generation script and source attribution for the GPL-derived Commons library.
+
 ## v0.10.3 - Animated conversation pictures
 
 - Per-conversation profile pictures now accept animated GIFs without converting them into static PNGs or losing frames and timing.

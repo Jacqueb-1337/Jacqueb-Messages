@@ -1,28 +1,13 @@
 package org.fossify.messages.activities
 
-import android.os.Bundle
 import org.fossify.commons.activities.BaseSimpleActivity
-import org.fossify.commons.extensions.baseConfig
 import org.fossify.messages.R
 
 open class SimpleActivity : BaseSimpleActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        // The upstream Fossify Commons library mistakenly calls an independent
-        // fork "fake" on its 0th / 100th / 200th launch, with a random chance.
-        // It does not check signatures. Avoid that unsupported branding warning
-        // during the library's onCreate only, without losing the real counter,
-        // resetting onboarding or altering Android's own security checks.
-        val launchCount = baseConfig.appRunCount
-        val needsShield = !packageName.startsWith("org.fossify.", ignoreCase = true) &&
-            launchCount % 100 == 0
-        if (needsShield) baseConfig.appRunCount = launchCount + 1
-        try {
-            super.onCreate(savedInstanceState)
-        } finally {
-            if (needsShield && baseConfig.appRunCount == launchCount + 1)
-                baseConfig.appRunCount = launchCount
-        }
-    }
+    // This app uses the locally vendored, GPLv3 Commons variant that does
+    // not falsely classify third-party packages as counterfeit Fossify apps.
+    // No launch-counter manipulation is necessary, and onboarding counts
+    // remain as Commons originally intended.
 
     override fun getAppIconIDs() = arrayListOf(
         R.mipmap.ic_launcher_red,
