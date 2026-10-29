@@ -1,0 +1,14 @@
+<resources>
+    <color name="samsung_surface">#FF010102</color>
+    <color name="samsung_card">#FF161617</color>
+    <color name="samsung_soft_surface">#FF1E1E20</color>
+    <color name="samsung_composer_surface">#FF303033</color>
+    <color name="samsung_text_primary">#FFFAFAFA</color>
+    <color name="samsung_text_secondary">#FF99999E</color>
+    <color name="samsung_line">#FF39393D</color>
+    <color name="samsung_accent">#FF387AFF</color>
+    <color name="samsung_sent">#FF1A5FDC</color>
+    <color name="samsung_received">#FF454545</color>
+    <color name="samsung_send">#FF009078</color>
+    <color name="samsung_search_toolbar">#FF373737</color>
+</resources>

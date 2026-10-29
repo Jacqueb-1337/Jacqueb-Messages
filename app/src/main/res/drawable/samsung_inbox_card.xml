@@ -1,0 +1,5 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/samsung_card" />
+    <corners android:radius="27dp" />
+    <stroke android:width="0.5dp" android:color="@color/samsung_line" />
+</shape>
