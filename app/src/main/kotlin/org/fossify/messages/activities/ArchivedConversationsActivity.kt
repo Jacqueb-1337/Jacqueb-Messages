@@ -77,7 +77,9 @@ class ArchivedConversationsActivity : SimpleActivity() {
     private fun loadArchivedConversations() {
         ensureBackgroundThread {
             val conversations = try {
-                conversationsDB.getAllArchived().toMutableList() as ArrayList<Conversation>
+                conversationsDB.getAllArchived().filterNot {
+                    org.fossify.messages.safe.SafeStore.isSafe(this,it.threadId)
+                }.toCollection(ArrayList())
             } catch (e: Exception) {
                 ArrayList()
             }

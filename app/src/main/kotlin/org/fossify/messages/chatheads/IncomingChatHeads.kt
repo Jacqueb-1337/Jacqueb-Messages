@@ -35,7 +35,7 @@ object IncomingChatHeads {
         senderName: String,
         preview: String
     ): Boolean {
-        if (threadId <= 0L) return false
+        if (threadId <= 0L || org.fossify.messages.safe.SafeStore.isSafe(context,threadId)) return false
         val app = context.applicationContext
         val prefs = app.getSharedPreferences(ChatHeadsSettingsActivity.PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(ChatHeadsSettingsActivity.ENABLED, false) ||

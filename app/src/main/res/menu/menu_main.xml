@@ -8,6 +8,7 @@
         android:showAsAction="never"
         android:title="@string/trash_menu_title"
         app:showAsAction="never" />
+    <item android:id="@+id/show_safe" android:title="Safe" android:showAsAction="never" app:showAsAction="never" />
     <item
         android:id="@+id/show_archived"
         android:showAsAction="never"

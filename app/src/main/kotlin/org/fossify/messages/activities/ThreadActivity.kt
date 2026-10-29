@@ -297,7 +297,15 @@ class ThreadActivity : SimpleActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val privateThread=intent.getLongExtra(THREAD_ID,-1L)
+        if(org.fossify.messages.safe.SafeStore.isSafe(this,privateThread))
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         super.onCreate(savedInstanceState)
+        if(org.fossify.messages.safe.SafeStore.isSafe(this,privateThread) &&
+            !org.fossify.messages.safe.SafeStore.unlocked()) {
+            startActivity(Intent(this,org.fossify.messages.safe.SafeActivity::class.java))
+            finish();return
+        }
         val origin = threadOrigin()
         // The window stays transparent; only the conversation surface is
         // colored. Otherwise the shrinking card reveals a gray, opaque
@@ -358,6 +366,11 @@ class ThreadActivity : SimpleActivity() {
 
     override fun onResume() {
         super.onResume()
+        if(org.fossify.messages.safe.SafeStore.isSafe(this,threadId) &&
+            !org.fossify.messages.safe.SafeStore.unlocked()) {
+            startActivity(Intent(this,org.fossify.messages.safe.SafeActivity::class.java))
+            finish();return
+        }
         setupTopAppBar(
             topAppBar = binding.threadAppbar,
             navigationIcon = NavigationIcon.Arrow,
@@ -435,6 +448,8 @@ class ThreadActivity : SimpleActivity() {
     }
 
     override fun onStop() {
+        if(org.fossify.messages.safe.SafeStore.isSafe(this,threadId))
+            org.fossify.messages.safe.SafeStore.lock()
         super.onStop()
         AudioPlayerManager.release()
         saveDraftMessage()

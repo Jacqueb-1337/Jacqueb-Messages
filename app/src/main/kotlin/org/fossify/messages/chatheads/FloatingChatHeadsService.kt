@@ -208,10 +208,25 @@ class FloatingChatHeadsService : Service() {
         }
         ensureForeground()
         if (intent?.action == ACTION_CLEAR) clearAllHeads()
+        if (intent?.action == ACTION_REMOVE_SAFE) {
+            val removed=intent.getLongExtra(EXTRA_THREAD_ID,-1L)
+            if(removed>0 && heads.remove(removed)!=null) {
+                if(selectedId==removed) {
+                    panel?.let {
+                        it.animate().cancel()
+                        try { windows.removeViewImmediate(it) } catch (_:Exception) {}
+                    }
+                    panel=null
+                    panelParams=null
+                    selectedId=heads.keys.lastOrNull() ?: -1L
+                }
+                refreshUnreadHeadCount();showHeads();if(expandedStrip!=null)rebuildExpandedStrip()
+            }
+        }
         if (intent?.action == ACTION_ADD) {
             val id = intent.getLongExtra(EXTRA_THREAD_ID, -1L)
             val address = intent.getStringExtra(EXTRA_ADDRESS).orEmpty()
-            if (id > 0L) {
+            if (id > 0L && !org.fossify.messages.safe.SafeStore.isSafe(this,id)) {
                 val title = intent.getStringExtra(EXTRA_TITLE).orEmpty().ifBlank { address }
                 val expanded = expandedStrip != null
                 val previous = selectedId
@@ -1888,6 +1903,7 @@ class FloatingChatHeadsService : Service() {
             return true
         }
 
+        const val ACTION_REMOVE_SAFE = "com.jacqueb.messages.chatheads.REMOVE_SAFE"
         const val ACTION_ADD = "me.jacqueb.messages.chatheads.ADD"
         const val ACTION_STOP = "me.jacqueb.messages.chatheads.STOP"
         const val ACTION_ARM = "me.jacqueb.messages.chatheads.ARM"

@@ -154,8 +154,8 @@ abstract class BaseConversationsAdapter(
             UiMotion.press(root, .986f)
             conversationImage.setOnClickListener {
                 val actions = if (conversation.isGroupConversation)
-                    arrayOf("Open conversation", "Open Chat Head", "Customize conversation")
-                else arrayOf("Open conversation", "Open Chat Head", "Customize conversation", "Call")
+                    arrayOf("Open conversation", "Open Chat Head", "Customize conversation", "Move to Safe")
+                else arrayOf("Open conversation", "Open Chat Head", "Customize conversation", "Call", "Move to Safe")
                 org.fossify.messages.theming.FluidSheets.actions(
                     activity, conversation.title, actions) { choice ->
                     when (choice) {
@@ -165,7 +165,13 @@ abstract class BaseConversationsAdapter(
                         2 -> activity.startActivity(android.content.Intent(
                             activity, org.fossify.messages.activities.ConversationDetailsActivity::class.java)
                             .putExtra(org.fossify.messages.helpers.THREAD_ID,conversation.threadId))
-                        3 -> activity.startActivity(android.content.Intent(
+                        4 -> activity.startActivity(android.content.Intent(activity,
+                            org.fossify.messages.safe.SafeActivity::class.java)
+                            .putExtra("safe_add_thread",conversation.threadId))
+
+                        3 -> if(conversation.isGroupConversation) activity.startActivity(android.content.Intent(
+                            activity,org.fossify.messages.safe.SafeActivity::class.java).putExtra("safe_add_thread",conversation.threadId))
+                             else activity.startActivity(android.content.Intent(
                             android.content.Intent.ACTION_DIAL,
                             android.net.Uri.fromParts("tel", conversation.phoneNumber, null)))
                     }

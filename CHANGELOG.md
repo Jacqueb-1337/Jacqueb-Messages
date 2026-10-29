@@ -1,3 +1,10 @@
+## 0.11.0-alpha.1
+
+- **Added:** Safe for private conversations, with Android screen lock/biometrics or app PIN/pattern and a required backup unlock method.
+- **Added:** Hidden Safe conversations, protected screens and private notification options.
+- **Fixed:** Safe conversations no longer appear in the normal inbox, search or incoming chat heads.
+- **Fixed:** Theme Studio text and controls no longer overlap the status or navigation bars.
+
 # Messages changelog
 
 Changes are listed in plain language as **Added**, **Fixed**, or **Removed**. Technical implementation details belong in commits and developer documentation, not release notes.

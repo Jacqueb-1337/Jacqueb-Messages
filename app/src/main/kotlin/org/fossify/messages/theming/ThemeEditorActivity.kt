@@ -12,6 +12,8 @@ import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 /** Synthetic interactive inbox and conversation theme previews. */
 class ThemeEditorActivity: AppCompatActivity() {
@@ -83,7 +85,8 @@ class ThemeEditorActivity: AppCompatActivity() {
     }
     override fun onCreate(savedInstanceState:Bundle?){
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window,true)
+        // Android 15/16 enforce edge-to-edge even for older themes.
+        WindowCompat.setDecorFitsSystemWindows(window,false)
         page=savedInstanceState?.getInt("page")?:0
         render()
     }
@@ -101,6 +104,17 @@ class ThemeEditorActivity: AppCompatActivity() {
             setPadding(d(15),d(12),d(15),d(10))
         }
         setContentView(root)
+        // Theme Studio is rebuilt whenever a control is edited. Apply
+        // real system/IME insets to EVERY new root so the header never meets
+        // status icons and the footer always clears the navigation bar.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view,insets ->
+            val system=insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime=insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(d(15)+system.left,d(12)+system.top,
+                d(15)+system.right,d(10)+maxOf(system.bottom,ime.bottom))
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
         root.post { if(root.isAttachedToWindow) UiMotion.enter(root, 5f) }
         val heading=horizontal()
         val close=t("‹",30f).apply{

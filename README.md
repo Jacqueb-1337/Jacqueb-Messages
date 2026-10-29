@@ -51,3 +51,7 @@ Settings → About & Updates offers a Stable/Beta/Alpha update channel, automati
 Release format and signing procedures are documented in [docs/RELEASING.md](docs/RELEASING.md).
 
 The launcher label and Android app name are **Messages**; **Jacqueb Messages** is the project/repository name.
+
+## Safe (alpha)
+
+Safe allows hiding chosen conversations from the Messages inbox and search, locking access with Android biometrics/screen lock or an app PIN/pattern plus a mandatory separate backup method. It blocks screen captures and recent-app previews while its screens are open. Notifications can be disabled or limited to a generic alert. **Safe hides only the app interface:** carrier SMS/MMS remains in the shared Android Telephony provider and may be visible to other messaging apps with permission, carrier services or system backups. Safe credentials and private conversation membership are excluded from preferences exports. FIDO2 hardware security keys and cloud-backed passkey sync are not included in this alpha.

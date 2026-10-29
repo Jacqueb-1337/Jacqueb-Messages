@@ -15,7 +15,10 @@ object PreferencesBackup {
     private const val LIMIT = 64 * 1024 * 1024
     private val forbidden = Regex("password|passcode|secret|token|oauth|api.?key|credential|private.?key|pin_code|fingerprint|biometric|session|cookie", RegexOption.IGNORE_CASE)
     private fun eligible(name: String): Boolean = name.matches(Regex("[A-Za-z0-9_.-]{1,120}")) && !forbidden.containsMatchIn(name)
-    private fun includeName(name: String): Boolean = eligible(name) && (
+    // Safe unlock credentials AND thread membership are security metadata.
+    // Never include them in portable preferences exports or imports.
+    private fun includeName(name: String): Boolean = eligible(name) &&
+        !name.startsWith("messages_private_safe", ignoreCase=true) && (
         name.contains("message",true) || name.contains("theme",true) ||
         name.contains("config",true) || name.contains("head",true) ||
         name.contains("convers",true) || name.contains("overlay",true) ||

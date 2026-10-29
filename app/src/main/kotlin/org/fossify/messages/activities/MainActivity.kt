@@ -63,6 +63,8 @@ import org.fossify.commons.models.FAQItem
 import org.fossify.commons.models.Release
 import org.fossify.messages.BuildConfig
 import org.fossify.messages.R
+import org.fossify.messages.safe.SafeStore
+import org.fossify.messages.safe.SafeActivity
 import org.fossify.messages.adapters.ConversationsAdapter
 import org.fossify.messages.adapters.SearchResultsAdapter
 import org.fossify.messages.databinding.ActivityMainBinding
@@ -395,6 +397,7 @@ class MainActivity : SimpleActivity() {
         binding.mainMenu.requireToolbar().setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.show_recycle_bin -> launchRecycleBin()
+                R.id.show_safe -> startActivity(Intent(this,SafeActivity::class.java))
                 R.id.show_archived -> launchArchivedConversations()
                 R.id.chat_heads -> startActivity(Intent(this, ChatHeadsSettingsActivity::class.java))
                 R.id.theme_studio -> startActivity(Intent(this, ThemeEditorActivity::class.java))
@@ -634,7 +637,8 @@ class MainActivity : SimpleActivity() {
         conversations: ArrayList<Conversation>,
         cached: Boolean = false,
     ) {
-        val unreadThreads = conversations.count { !it.read && it.unreadCount > 0 }
+        val visibleConversations=conversations.filterNot { SafeStore.isSafe(this,it.threadId) }
+        val unreadThreads = visibleConversations.count { !it.read && it.unreadCount > 0 }
         binding.samsungTabUnreadCount.visibility = if (unreadThreads > 0) View.VISIBLE else View.GONE
         binding.samsungTabUnreadCount.text = when {
             unreadThreads > 99 -> "99+"
@@ -646,7 +650,7 @@ class MainActivity : SimpleActivity() {
             }
         }
         lastUnreadTotal = unreadThreads
-        val sortedConversations = conversations
+        val sortedConversations = visibleConversations
             .sortedWith(
                 compareByDescending<Conversation> {
                     config.pinnedConversations.contains(it.threadId.toString())
@@ -656,10 +660,10 @@ class MainActivity : SimpleActivity() {
         if (cached && config.appRunCount == 1) {
             // there are no cached conversations on the first run so we show the
             // loading placeholder and progress until we are done loading from telephony
-            showOrHideProgress(conversations.isEmpty())
+            showOrHideProgress(visibleConversations.isEmpty())
         } else {
             showOrHideProgress(false)
-            showOrHidePlaceholder(conversations.isEmpty())
+            showOrHidePlaceholder(visibleConversations.isEmpty())
         }
 
         try {
@@ -709,6 +713,9 @@ class MainActivity : SimpleActivity() {
 
     private fun handleConversationClick(any: Any) {
         val conversation = any as? Conversation ?: return
+        if(SafeStore.isSafe(this,conversation.threadId)) {
+            startActivity(Intent(this,SafeActivity::class.java));return
+        }
         val launch = Intent(this, ThreadActivity::class.java).apply {
             putExtra(THREAD_ID, conversation.threadId)
             putExtra(THREAD_TITLE, conversation.title)
@@ -823,7 +830,7 @@ class MainActivity : SimpleActivity() {
         searchedText: String,
     ) {
         val searchResults = ArrayList<SearchResult>()
-        conversations.forEach { conversation ->
+        conversations.filterNot { SafeStore.isSafe(this,it.threadId) }.forEach { conversation ->
             val date = (conversation.date * 1000L).formatDateOrTime(
                 context = this,
                 hideTimeOnOtherDays = true,
@@ -841,7 +848,7 @@ class MainActivity : SimpleActivity() {
             searchResults.add(searchResult)
         }
 
-        messages.sortedByDescending { it.id }.forEach { message ->
+        messages.filterNot { SafeStore.isSafe(this,it.threadId) }.sortedByDescending { it.id }.forEach { message ->
             var recipient = message.senderName
             if (recipient.isEmpty() && message.participants.isNotEmpty()) {
                 val participantNames = message.participants.map { it.name }

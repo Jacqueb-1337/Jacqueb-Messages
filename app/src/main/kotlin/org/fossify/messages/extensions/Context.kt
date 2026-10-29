@@ -1114,6 +1114,30 @@ fun Context.showReceivedMessageNotification(
     bitmap: Bitmap?,
     chatHeadVisualAlert: Boolean = false,
 ) {
+    if(org.fossify.messages.safe.SafeStore.isSafe(this,threadId)) {
+        if(org.fossify.messages.safe.SafeStore.notificationMode(this)==org.fossify.messages.safe.SafeStore.ALERT_OFF)
+            return
+        val manager=getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val channel="messages_safe_generic_v1"
+        if(android.os.Build.VERSION.SDK_INT>=26)
+            manager.createNotificationChannel(android.app.NotificationChannel(channel,
+                "Safe messages",android.app.NotificationManager.IMPORTANCE_DEFAULT))
+        val intent=android.content.Intent(this,org.fossify.messages.safe.SafeActivity::class.java)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pending=android.app.PendingIntent.getActivity(this,8431,intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        val notice=androidx.core.app.NotificationCompat.Builder(this,channel)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("New private message")
+            .setContentText("Open Safe to view")
+            .setVisibility(androidx.core.app.NotificationCompat.VISIBILITY_SECRET)
+            .setAutoCancel(true)
+            .setContentIntent(pending).build()
+        if(android.os.Build.VERSION.SDK_INT<33 || androidx.core.content.ContextCompat.checkSelfPermission(this,
+            android.Manifest.permission.POST_NOTIFICATIONS)==android.content.pm.PackageManager.PERMISSION_GRANTED)
+            manager.notify(8431,notice)
+        return
+    }
     Handler(Looper.getMainLooper()).post {
         notificationHelper.showMessageNotification(
             messageId = messageId,
