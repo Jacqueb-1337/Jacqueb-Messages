@@ -33,3 +33,14 @@ The emulator intermittently failed to show the overlay IME during instrumentatio
 Release build passed with version code 67. Delivery verification is recorded below after publication.
 
 Safe aliases contain provider/archive IDs only and stop matching when the archive is removed. SMS/MMS resolve membership after persistence, before alerts; failures preserve normal receipt. Regression checks cover association, restored-alias expiry and open-lock rendering on unencrypted Safe rows.
+
+## Delivery confirmed
+
+- Published prerelease: https://github.com/Jacqueb-1337/Jacqueb-Messages/releases/tag/v0.11.0-alpha.13
+- Source/tag target: d9f621a2011705f077460388fcd3daabe6482208.
+- APK: Jacqueb-Messages-v0.11.0-alpha.13-release.apk, 71,914,115 bytes.
+- SHA-256: 02cd9c7bf3b3374ddc2b24b68df9143558b3b46c123b1396fc1fd99e80f94a5e. GitHub's asset digest and the actual phone download match.
+- Original production signing certificate verified against alpha.12. Package com.jacqueb.messages, version 0.11.0-alpha.13, code 67.
+- Signed production APK updated and launched successfully on the emulator; no AndroidRuntime error on launch. Emulator default SMS role restored to production and hardware-keyboard IME override reset.
+- Exact published APK downloaded, verified and installed successfully on the physical phone. Package manager confirms version 67 / alpha.13. App data was preserved.
+- No real carrier SMS/MMS were sent during verification.
