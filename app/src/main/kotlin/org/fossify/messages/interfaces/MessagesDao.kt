@@ -96,6 +96,9 @@ interface MessagesDao {
         deleteAllThreadMessages(threadId)
     }
 
+    @Query("DELETE FROM messages WHERE thread_id = :threadId AND is_scheduled = 0")
+    fun deleteSafeCachedThreadMessages(threadId: Long)
+
     @Query("DELETE FROM messages WHERE thread_id = :threadId")
     fun deleteAllThreadMessages(threadId: Long)
 

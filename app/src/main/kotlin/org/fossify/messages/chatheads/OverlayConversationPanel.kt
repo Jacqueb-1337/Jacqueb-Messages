@@ -301,6 +301,7 @@ class OverlayConversationPanel(
         card.addView(compose)
         UiMotion.press(send, .91f)
         send.setOnClickListener { submitMessage() }
+        org.fossify.messages.helpers.MessageComposer.configure(input,host.config.sendOnEnter){send.performClick()}
         input.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}

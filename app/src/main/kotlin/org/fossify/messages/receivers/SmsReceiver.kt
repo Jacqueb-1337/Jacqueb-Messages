@@ -35,6 +35,7 @@ class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()
         val appContext = context.applicationContext
+        org.fossify.messages.safe.SafeTransferWork.beginReceipt()
 
         ensureBackgroundThread {
             try {
@@ -58,14 +59,6 @@ class SmsReceiver : BroadcastReceiver() {
                 }
 
                 val date = System.currentTimeMillis()
-                val privateDelivery = runCatching {
-                    org.fossify.messages.safe.SafeVault.appendIncoming(appContext,address,body,date,
-                        intent.getIntExtra("subscription",-1),status)
-                }.getOrElse {
-                    android.util.Log.e("Safe", "Private SMS persistence failed; preserving normal delivery", it)
-                    false
-                }
-                if (privateDelivery) return@ensureBackgroundThread
                 val threadId = appContext.getThreadId(address)
                 val subscriptionId = intent.getIntExtra("subscription", -1)
 
@@ -80,6 +73,8 @@ class SmsReceiver : BroadcastReceiver() {
                     status = status
                 )
             } finally {
+                org.fossify.messages.safe.SafeTransferWork.endReceipt()
+                org.fossify.messages.safe.SafeTransferWork.enqueue(appContext)
                 pending.finish()
             }
         }
@@ -110,6 +105,7 @@ class SmsReceiver : BroadcastReceiver() {
             type = type,
             subscriptionId = subscriptionId
         )
+        org.fossify.messages.safe.SafeVault.associatePublicThread(context,threadId)
 
         context.getConversations(threadId).firstOrNull()?.let { conv ->
             runCatching { context.insertOrUpdateConversation(conv) }
@@ -166,5 +162,6 @@ class SmsReceiver : BroadcastReceiver() {
             bitmap = bitmap,
             chatHeadVisualAlert = headShown
         )
+        org.fossify.messages.safe.SafeTransferWork.ready(context,"sms",newMessageId,date)
     }
 }

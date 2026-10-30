@@ -45,6 +45,16 @@ class MmsReceiver(private val originalNotificationId:Long?=null) : MmsReceivedRe
     }
 
     override fun onMessageReceived(context: Context, messageUri: Uri?) {
+        org.fossify.messages.safe.SafeTransferWork.beginReceipt()
+        ensureBackgroundThread {
+            try {handleReceivedMms(context,messageUri)}
+            finally {
+                org.fossify.messages.safe.SafeTransferWork.endReceipt()
+                org.fossify.messages.safe.SafeTransferWork.enqueue(context)
+            }
+        }
+    }
+    private fun handleReceivedMms(context:Context,messageUri:Uri?) {
         val mms = if (messageUri != null) {
             context.getMMS(messageUri)
         } else {
@@ -63,9 +73,8 @@ class MmsReceiver(private val originalNotificationId:Long?=null) : MmsReceivedRe
 
         val address = mms.getSender()?.phoneNumbers?.firstOrNull()?.normalizedNumber ?: mms.senderPhoneNumber
         val size = context.resources.getDimension(R.dimen.notification_large_icon_size).toInt()
-        ensureBackgroundThread {
-            handleMmsMessage(context, mms, size, address)
-        }
+        handleMmsMessage(context,mms,size,address)
+        org.fossify.messages.safe.SafeTransferWork.ready(context,"mms",mms.id,mms.date.toLong())
     }
 
     override fun onError(context: Context, error: String) {
@@ -80,10 +89,6 @@ class MmsReceiver(private val originalNotificationId:Long?=null) : MmsReceivedRe
         size: Int,
         address: String
     ) {
-        if (runCatching { org.fossify.messages.safe.SafeVault.absorbMms(context,mms.threadId) }
-            .getOrElse { android.util.Log.e("Safe","MMS encryption incomplete; retaining provider copy",it); false }) {
-            refreshConversations();refreshMessages();return
-        }
         val glideBitmap = try {
             Glide.with(context)
                 .asBitmap()
@@ -100,6 +105,7 @@ class MmsReceiver(private val originalNotificationId:Long?=null) : MmsReceivedRe
             context.getNameFromAddress(address, it)
         }
 
+        org.fossify.messages.safe.SafeVault.associatePublicThread(context,mms.threadId)
         val headShown = IncomingChatHeads.onReceived(context, mms.threadId, address, senderName, mms.body)
         context.showReceivedMessageNotification(
             messageId = mms.id,

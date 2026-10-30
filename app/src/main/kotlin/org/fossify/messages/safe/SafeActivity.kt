@@ -156,6 +156,7 @@ class SafeActivity : SimpleActivity() {
             } else button("Set up Safe lock") { setupFrameworkLock() }
             return
         }
+        SafeStore.clearMessageNotifications(this)
         handler.postDelayed(expire, SafeStore.sessionRemaining() + 20L)
         if (transferring) { main.addView(label("Securing and verifying your messages...",16f)); return }
         val pending = intent.getLongExtra("safe_add_thread", -1L)

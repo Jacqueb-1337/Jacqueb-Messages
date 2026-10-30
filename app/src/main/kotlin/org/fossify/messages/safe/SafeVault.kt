@@ -122,6 +122,7 @@ object SafeVault {
     } ?: error("Cannot read MMS attachment")
     private fun captureRecord(c:Context,id:Long,kind:String,data:JSONObject):JSONObject {
         check(kind!="sms" || data.optInt("type") in listOf(1,2,5)){"Finish sending queued messages before moving this conversation"}
+        check(kind!="mms" || data.optInt("msg_box") in listOf(1,2,5)){"Wait for queued MMS to finish before moving it"}
         check(kind!="mms" || data.optInt("m_type")==132 || data.optInt("m_type")==128){"Download pending MMS before moving this conversation"}
         val record=JSONObject().put("key",UUID.randomUUID().toString()).put("kind",kind).put("row",data)
         if(kind=="mms") {
@@ -149,32 +150,39 @@ object SafeVault {
             .put("draft",org.fossify.messages.messaging.ConversationDrafts.read(c,id).orEmpty())
             .put("recipients",JSONArray(recipients)).put("phase","capturing").put("records",JSONArray())
     }
-    private fun scrub(c:Context,thread:Long) {
-        c.messagesDB.deleteThreadMessages(thread);c.conversationsDB.deleteThreadId(thread)
+    private fun scrub(c:Context,thread:Long,clearDraft:Boolean=true) {
+        c.messagesDB.deleteSafeCachedThreadMessages(thread);c.conversationsDB.deleteThreadId(thread)
         org.fossify.messages.search.SearchCatalog.removeThread(c,thread)
         org.fossify.messages.search.SemanticIndex.removeThread(c,thread)
         org.fossify.messages.chatheads.OverlayConversationPanel.forgetCached(thread)
         com.bumptech.glide.Glide.get(c).clearDiskCache()
         android.os.Handler(android.os.Looper.getMainLooper()).post { com.bumptech.glide.Glide.get(c).clearMemory() }
-        c.getSharedPreferences("conversation_drafts_shared_v1",0).edit().putString("draft_"+thread,"").commit()
-        c.deleteSmsDraft(thread)
+        if(clearDraft) {
+            c.getSharedPreferences("conversation_drafts_shared_v1",0).edit().putString("draft_"+thread,"").commit()
+            c.deleteSmsDraft(thread)
+        }
     }
     @Synchronized fun capture(c:Context,id:Long) {
         check(SafeStore.unlocked()){"Unlock Safe first"};defaultApp(c)
         captureInternal(c,id,if(exists(c,id))load(c,id) else create(c,id),id)
     }
-    private fun captureInternal(c:Context,id:Long,a:JSONObject,providerThread:Long) {
+    private fun captureInternal(c:Context,id:Long,a:JSONObject,providerThread:Long,bestEffort:Boolean=false) {
         check(a.optString("phase")!="restoring"){"Finish restoring this conversation first"}
         val records=a.getJSONArray("records")
         val pending= mutableListOf<Pair<String,JSONObject>>()
         for(kind in listOf("sms","mms")) for(data in publicRows(c,providerThread,kind)) {
+            if(bestEffort && !SafeTransferWork.canMove(c,kind,data))continue
             val oldIndex=(0 until records.length()).firstOrNull { index ->
                 val old=records.getJSONObject(index)
                 val oldRow=old.getJSONObject("row")
                 old.getString("kind")==kind && oldRow.optLong("_id")==data.getLong("_id") &&
                     oldRow.optLong("thread_id")==data.optLong("thread_id") && oldRow.optLong("date")==data.optLong("date")
             }
-            val rec=captureRecord(c,id,kind,data)
+            val rec=try {captureRecord(c,id,kind,data)} catch(error:Exception) {
+                if(!bestEffort)throw error
+                android.util.Log.w("SafeTransfer","A message remains in the provider for retry",error)
+                continue
+            }
             if(oldIndex==null)records.put(rec) else {
                 rec.put("key",records.getJSONObject(oldIndex).getString("key"));records.put(oldIndex,rec)
             }
@@ -183,6 +191,7 @@ object SafeVault {
         check(records.length()>0){"No messages to move"}
         a.put("phase","capturing");save(c,id,a)
         checkpoint("after_encrypted_write")
+        check(!SafeTransferWork.receiving()){"Message receipt is still finishing; transfer will retry"}
         // Disk read and authenticated decryption have completed. Only now delete
         // the exact captured rows, after checking they have not changed.
         for((kind,rec) in pending) {
@@ -202,12 +211,105 @@ object SafeVault {
             check(c.contentResolver.delete(uri,"_id=? AND thread_id=?",arrayOf(rowId.toString(),providerThread.toString()))==1){"Could not remove public message; encrypted recovery retained"}
             checkpoint("after_provider_delete")
         }
-        check(publicRows(c,providerThread,"sms").isEmpty() && publicRows(c,providerThread,"mms").isEmpty()){"New messages arrived during transfer. Retry to finish encryption."}
-        scrub(c,providerThread);a.put("phase","sealed");save(c,id,a)
+        val providerEmpty=publicRows(c,providerThread,"sms").isEmpty() && publicRows(c,providerThread,"mms").isEmpty()
+        scrub(c,providerThread,clearDraft=providerEmpty)
+        check(providerEmpty){"New messages arrived during transfer. Retry to finish encryption."}
+        a.put("phase","sealed");save(c,id,a)
         val referenced=array(records).flatMap { rec ->
             rec.optJSONArray("parts")?.let { array(it).mapNotNull { part -> part.optString("safe_blob").takeIf { name -> name.isNotBlank() } } }.orEmpty()
         }.toSet()+"manifest.aes"
         folder(c,id).listFiles().orEmpty().filter{it.name.endsWith(".aes") && it.name !in referenced}.forEach{it.delete()}
+    }
+    private fun providerThread(c:Context,a:JSONObject):Long {
+        val recipients=a.getJSONArray("recipients")
+        return Telephony.Threads.getOrCreateThreadId(c,(0 until recipients.length()).map{recipients.getString(it)}.toSet())
+    }
+    // Android may allocate a new thread ID after the last public row is removed.
+    // Map IDs only, keeping recipients encrypted. This never intercepts receipt.
+    fun associatePublicThread(c:Context,thread:Long) {
+        runCatching {
+            if(ids(c).isEmpty())return
+            val addresses=c.getThreadParticipants(thread,null).flatMap{it.phoneNumbers.map{it.value}}.distinct()
+            if(addresses.isEmpty())return
+            ids(c).firstOrNull { id ->
+                val a=load(c,id)
+                a.optString("phase") !in listOf("restoring","restored") && recipientMatch(a,addresses)
+            }?.let { id -> c.getSharedPreferences("safe_provider_aliases",0).edit().putLong(thread.toString(),id).commit() }
+        }.onFailure{android.util.Log.w("SafeTransfer","Could not associate provider thread; receipt continues",it)}
+    }
+    fun isPublicAlias(c:Context,thread:Long):Boolean {
+        val id=c.getSharedPreferences("safe_provider_aliases",0).getLong(thread.toString(),0)
+        return id>0 && exists(c,id)
+    }
+    /** Background recovery never depends on a UI unlock and never deletes before verification. */
+    @Synchronized fun retryPending(c:Context):Boolean {
+        val privateIds=ids(c);if(privateIds.isEmpty())return true
+        if(!isDefault(c) || SafeTransferWork.receiving())return false
+        var complete=true
+        privateIds.forEach { id ->
+            try {
+                val a=load(c,id)
+                if(a.optString("phase") !in listOf("restoring","restored")) {
+                    val thread=providerThread(c,a)
+                    c.getSharedPreferences("safe_provider_aliases",0).edit().putLong(thread.toString(),id).commit()
+                    if(a.optString("phase")=="capturing" || publicRows(c,thread,"sms").isNotEmpty() || publicRows(c,thread,"mms").isNotEmpty())
+                        captureInternal(c,id,a,thread,true)
+                }
+            } catch(error:Exception) {complete=false;android.util.Log.w("SafeTransfer","Transfer incomplete; originals or recovery retained",error)}
+        }
+        return complete
+    }
+    /** The icon describes actual storage state, including copies still awaiting removal. */
+    @Synchronized fun readVisible(c:Context,id:Long):JSONObject {
+        val a=read(c,id);val records=a.getJSONArray("records")
+        val pending=mutableListOf<JSONObject>()
+        var verified=true
+        try {
+            val thread=providerThread(c,a)
+            for(kind in listOf("sms","mms"))for(data in publicRows(c,thread,kind)) {
+                val rec=JSONObject().put("kind",kind).put("row",data).put("key","pending-"+kind+"-"+data.getLong("_id")).put("_encrypted",false)
+                if(kind=="mms") {
+                    val parts=rows(c,Uri.parse("content://mms/"+data.getLong("_id")+"/part"),null,null)
+                    parts.forEach { part -> if(part.optString("ct").startsWith("image/")) part.put("provider_uri","content://mms/part/"+part.getLong("_id")) }
+                    rec.put("parts",JSONArray(parts))
+                }
+                pending.add(rec)
+            }
+        } catch(error:Exception) {verified=false;android.util.Log.w("SafeTransfer","Cannot verify provider removal",error)}
+        for(rec in array(records)) {
+            val row=rec.getJSONObject("row")
+            val match=pending.firstOrNull{it.getString("kind")==rec.getString("kind") && row.optLong("_id",-1)>0 &&
+                it.getJSONObject("row").optLong("_id")==row.optLong("_id") && it.getJSONObject("row").optLong("date")==row.optLong("date")}
+            rec.put("_encrypted",verified && match==null && a.optString("phase") !in listOf("restoring","restored"))
+            if(match!=null)pending.remove(match)
+        }
+        pending.forEach{records.put(it)}
+        return a
+    }
+    /** Acknowledge only the snapshot actually rendered, never a later arrival. */
+    @Synchronized fun markViewed(c:Context,id:Long,visible:JSONObject) {
+        if(!SafeStore.unlocked() || !exists(c,id))return
+        val seen=array(visible.getJSONArray("records"))
+        val a=load(c,id);var changed=false
+        for(rec in array(a.getJSONArray("records"))) {
+            val row=rec.getJSONObject("row")
+            val shown=seen.any { old ->
+                val source=old.getJSONObject("row")
+                old.optString("key")==rec.optString("key") || (old.getString("kind")==rec.getString("kind") &&
+                    row.optLong("_id",-1)>0 && source.optLong("_id")==row.optLong("_id") && source.optLong("date")==row.optLong("date"))
+            }
+            if(shown && (row.optInt("read")!=1 || row.optInt("seen")!=1)){row.put("read",1).put("seen",1);changed=true}
+        }
+        if(changed)save(c,id,a)
+        // Pending originals are updated by exact identity only; they remain intact.
+        if(isDefault(c))for(rec in seen) {
+            val row=rec.getJSONObject("row");val sourceId=row.optLong("_id",-1)
+            if(sourceId>0)runCatching {
+                c.contentResolver.update(if(rec.getString("kind")=="sms")sms else mms,
+                    ContentValues().apply{put("read",1);put("seen",1)},"_id=? AND thread_id=? AND date=?",
+                    arrayOf(sourceId.toString(),row.optLong("thread_id").toString(),row.optLong("date").toString()))
+            }
+        }
     }
     @Synchronized fun restore(c:Context,id:Long):Long {
         check(SafeStore.unlocked()){"Unlock Safe first"};defaultApp(c)
@@ -276,7 +378,7 @@ object SafeVault {
     fun date(rec:JSONObject):Long = rec.getJSONObject("row").optLong("date") * if(rec.getString("kind")=="mms")1000L else 1L
     fun body(rec:JSONObject):String = if(rec.getString("kind")=="sms")rec.getJSONObject("row").optString("body").let{if(it=="null")"" else it}
         else array(rec.getJSONArray("parts")).filter{it.optString("ct")=="text/plain"}.joinToString("\n"){it.optString("text")} .ifBlank{"Attachment"}
-    fun attachment(c:Context,id:Long,part:JSONObject):ByteArray {check(SafeStore.unlocked());return readFile(c,id,part.getString("safe_blob"))}
+    fun attachment(c:Context,id:Long,part:JSONObject):ByteArray {check(SafeStore.unlocked());return if(part.has("provider_uri"))bytes(c,Uri.parse(part.getString("provider_uri"))) else readFile(c,id,part.getString("safe_blob"))}
     private fun normalize(a:String)=android.telephony.PhoneNumberUtils.normalizeNumber(a).let{if(it.startsWith("+1")&&it.length==12)it.drop(2) else it}.ifBlank{a.trim().lowercase()}
     private fun recipientMatch(a:JSONObject,addresses:List<String>):Boolean {
         val rs=a.getJSONArray("recipients");val expected=(0 until rs.length()).map{normalize(rs.getString(it))}.toSet()
@@ -324,10 +426,17 @@ object SafeVault {
     @Synchronized fun prepareSms(c:Context,id:Long,text:String,parts:Int=1):Pair<String,String> {
         val a=read(c,id);val recipients=a.getJSONArray("recipients");check(recipients.length()==1){"Restore group conversations to the inbox to reply"}
         val address=recipients.getString(0);val key=UUID.randomUUID().toString()
-        a.getJSONArray("records").put(JSONObject().put("key",key).put("kind","sms").put("pending_parts",parts).put("completed_parts",JSONArray()).put("row",JSONObject()
+        a.getJSONArray("records").put(JSONObject().put("key",key).put("kind","sms").put("pending_parts",parts).put("send_result_version",2).put("completed_parts",JSONArray()).put("row",JSONObject()
             .put("address",address).put("body",text).put("date",System.currentTimeMillis()).put("date_sent",0).put("type",4)
             .put("read",1).put("seen",1).put("status",-1).put("sub_id",-1)))
         a.put("draft","");save(c,id,a);return key to address
+    }
+    fun sendLabel(record:JSONObject):String {
+        if(record.getString("kind")!="sms" || record.getJSONObject("row").optInt("type")!=5)return ""
+        // Older callback code read resultCode after goAsync detached the result.
+        // Those saved failures are untrustworthy, not evidence of failed delivery.
+        return if(record.has("completed_parts") && record.optInt("send_result_version")<2)
+            " - Status unavailable" else " - Failed"
     }
     @Synchronized fun sentResult(c:Context,id:Long,key:String,success:Boolean,part:Int=0) {
         if(!exists(c,id))return

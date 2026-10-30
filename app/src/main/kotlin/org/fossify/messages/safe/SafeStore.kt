@@ -42,8 +42,15 @@ object SafeStore {
         require(mode==ALERT_OFF || mode==ALERT_REDACTED)
         prefs(ctx).edit().putString("alerts",mode).apply()
     }
+    fun clearMessageNotifications(ctx:Context) {
+        if(!unlocked())return
+        runCatching {
+            val manager=ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            manager.cancel(8431);manager.cancel(19000)
+        }
+    }
     fun isSafe(ctx: Context,threadId: Long):Boolean =
-        threadId>0 && (prefs(ctx).getStringSet("threads",emptySet())?.contains(threadId.toString())==true || SafeVault.exists(ctx,threadId))
+        threadId>0 && (prefs(ctx).getStringSet("threads",emptySet())?.contains(threadId.toString())==true || SafeVault.exists(ctx,threadId) || SafeVault.isPublicAlias(ctx,threadId))
     fun safeThreads(ctx: Context):Set<Long> =
         prefs(ctx).getStringSet("threads",emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet() + SafeVault.ids(ctx)
     @Synchronized fun move(ctx: Context,id:Long,into:Boolean): Boolean {

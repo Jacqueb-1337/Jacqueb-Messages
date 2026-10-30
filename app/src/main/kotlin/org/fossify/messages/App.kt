@@ -24,6 +24,7 @@ class App : FossifyApp() {
 
     override fun onCreate() {
         super.onCreate()
+        org.fossify.messages.safe.SafeTransferWork.start(this)
         // Commons persists the application ID independently. Older installs
         // may retain the upstream/fork ID, causing its icon-color handler to
         // enable launcher aliases in the wrong package and throw

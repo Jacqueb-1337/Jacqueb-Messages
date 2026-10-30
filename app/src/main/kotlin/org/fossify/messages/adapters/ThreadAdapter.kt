@@ -388,6 +388,11 @@ class ThreadAdapter(
 
     private fun setupView(holder: ViewHolder, view: View, message: Message) {
         ItemMessageBinding.bind(view).apply {
+            threadMessageSafeState.apply {
+                beVisibleIf(org.fossify.messages.safe.SafeStore.isSafe(activity,message.threadId))
+                contentDescription="Unencrypted message in SMS database"
+                setTextColor(UiTheme.color(activity,"title"));alpha=.65f
+            }
             threadMessageHolder.isSelected = selectedKeys.contains(message.getSelectionKey())
             threadMessageHolder.layoutParams=threadMessageHolder.layoutParams.apply {
                 if(this is android.view.ViewGroup.MarginLayoutParams)

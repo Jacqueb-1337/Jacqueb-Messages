@@ -1059,25 +1059,7 @@ class ThreadActivity : SimpleActivity() {
                 threadCharacterCounter.text = "${messageLength[2]}/${messageLength[0]}"
             }
 
-            if (config.sendOnEnter) {
-                threadTypeMessage.inputType = EditorInfo.TYPE_TEXT_FLAG_CAP_SENTENCES
-                threadTypeMessage.imeOptions = EditorInfo.IME_ACTION_SEND
-                threadTypeMessage.setOnEditorActionListener { _, action, _ ->
-                    if (action == EditorInfo.IME_ACTION_SEND) {
-                        dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
-                        return@setOnEditorActionListener true
-                    }
-                    false
-                }
-
-                threadTypeMessage.setOnKeyListener { _, keyCode, event ->
-                    if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP) {
-                        sendMessage()
-                        return@setOnKeyListener true
-                    }
-                    false
-                }
-            }
+            org.fossify.messages.helpers.MessageComposer.configure(threadTypeMessage,config.sendOnEnter){sendMessage()}
 
             confirmManageContacts.setOnClickListener {
                 hideKeyboard()
