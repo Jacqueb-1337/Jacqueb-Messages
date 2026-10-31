@@ -1190,6 +1190,9 @@ fun Context.getNotificationBitmap(photoUri: String): Bitmap? {
         return null
     }
 
+    // Match the inbox's centerCrop framing. Android clips notification
+    // large icons to its own circle, so pre-applying circleCrop here can
+    // crop/scale the face a second time on some notification UIs.
     val options = RequestOptions()
         .diskCacheStrategy(DiskCacheStrategy.RESOURCE)
         .centerCrop()
@@ -1199,7 +1202,6 @@ fun Context.getNotificationBitmap(photoUri: String): Bitmap? {
             .asBitmap()
             .load(photoUri)
             .apply(options)
-            .apply(RequestOptions.circleCropTransform())
             .into(size, size)
             .get()
     } catch (_: Exception) {
