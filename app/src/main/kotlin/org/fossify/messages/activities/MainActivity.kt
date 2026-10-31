@@ -209,6 +209,12 @@ class MainActivity : SimpleActivity() {
         SearchCatalogWorker.schedule(applicationContext)
         SemanticIndexWorker.schedule(applicationContext)
         super.onResume()
+        // Prime the new-message contact picker after the inbox is drawn.
+        // No ContactsProvider work should run on the UI thread.
+        binding.mainCoordinator.postDelayed({
+            if (!isFinishing && !isDestroyed)
+                org.fossify.messages.helpers.ComposeContactsCache.prefetch(this)
+        }, 320L)
         if(!catalogReceiverRegistered) {
             androidx.core.content.ContextCompat.registerReceiver(this,searchCatalogReceiver,
                 android.content.IntentFilter(SearchCatalogWorker.ACTION_UPDATED),
@@ -219,12 +225,11 @@ class MainActivity : SimpleActivity() {
         org.fossify.messages.updates.UpdateRepository.checkOnLaunch(this,binding.root)
         if (composeReturnPending && UiMotion.enabled()) {
             composeReturnPending = false
-            // Rebinding every conversation, rebuilding FAB layout and querying
-            // drafts during the shared-element return made Back appear frozen.
-            // Keep the already drawn inbox stable until the + transition lands.
+            // Let the lightweight activity fade complete before refreshing
+            // drafts and inbox rows; no shared-element return is involved.
             binding.mainCoordinator.postDelayed({
                 if (!isFinishing && !isDestroyed) refreshInboxAfterResume()
-            }, 420L)
+            }, 220L)
         } else {
             composeReturnPending = false
             refreshInboxAfterResume()
@@ -547,7 +552,7 @@ class MainActivity : SimpleActivity() {
         // Samsung's Contacts tab is a working action: it opens the existing
         // contacts/conversation picker instead of an inert decorative tab.
         binding.samsungTabContacts.setOnClickListener {
-            launchNewConversation(binding.samsungTabContacts)
+            launchNewConversation()
         }
     }
 
@@ -784,22 +789,16 @@ class MainActivity : SimpleActivity() {
         super.onSaveInstanceState(outState)
     }
 
-    private fun launchNewConversation(origin: View = binding.conversationsFab) {
+    private fun launchNewConversation() {
         composeReturnPending = true
         hideKeyboard()
-        val launch = Intent(this, NewConversationActivity::class.java)
-        if (UiMotion.enabled() && origin.isAttachedToWindow) {
-            ViewCompat.setTransitionName(origin, UiMotion.COMPOSE_SURFACE)
-            launch.putExtra(UiMotion.SHARED_COMPOSE_LAUNCH, true)
-            try {
-                val options = ActivityOptionsCompat.makeSceneTransitionAnimation(
-                    this, origin, UiMotion.COMPOSE_SURFACE)
-                startActivity(launch, options.toBundle())
-            } catch (_: IllegalArgumentException) {
-                launch.removeExtra(UiMotion.SHARED_COMPOSE_LAUNCH)
-                startActivity(launch)
-            }
-        } else startActivity(launch)
+        // Transitioning the whole contact picker from the FAB forces Android
+        // to capture/re-layout a huge shared element, leaving a gray snapshot
+        // while ContactsProvider is still loading. Use a light activity fade;
+        // the picker can draw immediately and animate its own content.
+        startActivity(Intent(this, NewConversationActivity::class.java))
+        if (UiMotion.enabled()) overridePendingTransition(
+            android.R.anim.fade_in, android.R.anim.fade_out)
     }
 
     @SuppressLint("NewApi")

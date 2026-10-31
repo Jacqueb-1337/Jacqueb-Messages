@@ -39,6 +39,7 @@ import org.fossify.messages.databinding.ActivityNewConversationBinding
 import org.fossify.messages.databinding.ItemSuggestedContactBinding
 import org.fossify.messages.extensions.getSuggestedContacts
 import org.fossify.messages.extensions.getThreadId
+import org.fossify.messages.helpers.ComposeContactsCache
 import org.fossify.messages.helpers.SmsIntentParser
 import org.fossify.messages.helpers.THREAD_ATTACHMENT_URI
 import org.fossify.messages.helpers.THREAD_ATTACHMENT_URIS
@@ -63,17 +64,14 @@ class NewConversationActivity : SimpleActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val expanding = intent.getBooleanExtra(UiMotion.SHARED_COMPOSE_LAUNCH, false)
         UiMotion.prepareWindow(window, forThread = false)
-        if (expanding && UiMotion.enabled()) {
-            // The whole coordinator is already the shared element: a second
-            // activity-wide fade first shows a blank overlay and masks motion.
-            window.enterTransition = null
-            window.returnTransition = null
-        }
         setContentView(binding.root)
-        UiMotion.threadSurface(this, binding.newConversationCoordinator,
-            expanding, UiMotion.COMPOSE_SURFACE)
+        // Animate just the actual content, not the entire coordinator as a
+        // shared element: no gray snapshot while the contact list is loading.
+        binding.newConversationHolder.post {
+            if (!isFinishing && !isDestroyed)
+                UiMotion.enter(binding.newConversationHolder, 6f)
+        }
         title = getString(R.string.new_conversation)
         updateTextColors(binding.newConversationHolder)
 
@@ -83,21 +81,16 @@ class NewConversationActivity : SimpleActivity() {
             topAppBar = binding.newConversationAppbar
         )
 
-        if (expanding && UiMotion.enabled()) {
-            // The IME is a separate system surface. Let the composer expand
-            // from the pressed + button before it appears.
-            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
-            binding.newConversationAddress.postDelayed({
-                if (!isDestroyed && !isFinishing) {
-                    binding.newConversationAddress.requestFocus()
-                    (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-                        .showSoftInput(binding.newConversationAddress, InputMethodManager.SHOW_IMPLICIT)
-                }
-            }, 340L)
-        } else {
-            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
-            binding.newConversationAddress.requestFocus()
-        }
+        // Request the keyboard after the first page frame, not while Android
+        // is launching this activity and measuring its contact recycler.
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        binding.newConversationAddress.postDelayed({
+            if (!isDestroyed && !isFinishing) {
+                binding.newConversationAddress.requestFocus()
+                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .showSoftInput(binding.newConversationAddress, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }, 160L)
 
         // READ_CONTACTS permission is not mandatory, but without it we won't be able to show any suggestions during typing
         handlePermission(PERMISSION_READ_CONTACTS) {
@@ -196,16 +189,18 @@ class NewConversationActivity : SimpleActivity() {
     }
 
     private fun fetchContacts() {
-        // Independently fetch public and private contacts. Previously loading
-        // the entire public list waited for the suggested contacts UI.
+        // Display preloaded contacts immediately; refresh from the provider
+        // without blocking the first frame or re-querying concurrently.
+        ComposeContactsCache.peek(this)?.let { cached ->
+            deviceContacts = ArrayList(cached)
+            applyContactSources()
+        }
         fillSuggestedContacts()
-        ensureBackgroundThread {
-            SimpleContactsHelper(this).getAvailableContacts(false) { contacts ->
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    deviceContacts = ArrayList(contacts)
-                    applyContactSources()
-                }
+        ComposeContactsCache.refresh(this) { contacts ->
+            if (isFinishing || isDestroyed) return@refresh
+            if (deviceContacts != contacts) {
+                deviceContacts = ArrayList(contacts)
+                applyContactSources()
             }
         }
     }
