@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Typeface
 import org.fossify.messages.theming.UiTheme
 import org.fossify.messages.helpers.ConversationCustomization
+import org.fossify.messages.helpers.GroupAvatarArt
 import org.fossify.messages.theming.UiMotion
 import android.graphics.Color
 import androidx.core.content.ContextCompat
@@ -267,6 +268,7 @@ abstract class BaseConversationsAdapter(
             val avatarRadius=if(conversation.isGroupConversation)"group_radius" else "avatar_radius"
             conversationImage.background=UiTheme.shape(activity,avatarKind,avatarRadius)
             conversationImage.clipToOutline=true
+            conversationImage.setTag(R.id.group_avatar_thread_id, conversation.threadId)
             val picture=ConversationCustomization.photoFile(activity,conversation.threadId)
             when {
                 picture!=null -> {
@@ -274,10 +276,16 @@ abstract class BaseConversationsAdapter(
                         Glide.with(activity).asGif().load(picture).centerCrop().into(conversationImage)
                     else Glide.with(activity).load(picture).centerCrop().into(conversationImage)
                 }
+                conversation.isGroupConversation -> {
+                    Glide.with(activity).clear(conversationImage)
+                    conversationImage.setImageBitmap(UiTheme.avatarBitmap(
+                        activity,conversation.title,true))
+                    GroupAvatarArt.bind(activity, conversation.threadId, conversationImage)
+                }
                 conversation.photoUri.isNullOrBlank() -> {
                     Glide.with(activity).clear(conversationImage)
                     conversationImage.setImageBitmap(UiTheme.avatarBitmap(
-                        activity,conversation.title,conversation.isGroupConversation))
+                        activity,conversation.title,false))
                 }
                 else -> SimpleContactsHelper(activity).loadContactImage(
                     path=conversation.photoUri,

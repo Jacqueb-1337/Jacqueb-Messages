@@ -9,6 +9,8 @@ import android.net.Uri
 import android.widget.ImageView
 import org.fossify.messages.theming.UiTheme
 import org.fossify.messages.helpers.ConversationCustomization
+import org.fossify.messages.helpers.GroupAvatarArt
+import org.fossify.messages.R
 import com.bumptech.glide.Glide
 import android.animation.ValueAnimator
 import android.app.Notification
@@ -634,6 +636,8 @@ class FloatingChatHeadsService : Service() {
         if (wrapper.tag == bindingKey) return
         Glide.with(applicationContext).clear(image)
         image.setImageDrawable(null)
+        image.setTag(R.id.group_avatar_thread_id,
+            if (custom == null) head.id else "custom:${head.id}")
         wrapper.tag = bindingKey
         if (custom != null) {
             if(ConversationCustomization.isAnimatedPhoto(custom))
@@ -644,7 +648,9 @@ class FloatingChatHeadsService : Service() {
                 .signature(com.bumptech.glide.signature.ObjectKey(bindingKey))
                 .centerCrop().into(image)
         } else {
+            image.setImageBitmap(UiTheme.avatarBitmap(this, head.title, false))
             loadContactAvatar(head.address, image, wrapper, bindingKey)
+            GroupAvatarArt.bind(this, head.id, image)
         }
     }
 

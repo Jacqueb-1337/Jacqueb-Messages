@@ -78,15 +78,25 @@ class ConversationDetailsActivity : SimpleActivity() {
     }
     private val audioDocumentPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && threadId > 0L) {
-            try {
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (_: SecurityException) {
-                // Some providers grant only a transient read permission.
-            }
             stopSoundPreview()
-            ConversationCustomization.setSound(this, threadId, uri.toString(),
-                conversation?.title.orEmpty())
-            renderCustomSection()
+            toggleSoundPreview(uri)
+            AlertDialog.Builder(this)
+                .setTitle("Use this notification sound?")
+                .setMessage("Preview the selected audio file before saving it to this conversation.")
+                .setPositiveButton("Save") { _, _ ->
+                    try {
+                        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    } catch (_: SecurityException) {
+                        // Some document providers only provide temporary access.
+                    }
+                    stopSoundPreview()
+                    ConversationCustomization.setSound(this, threadId, uri.toString(),
+                        conversation?.title.orEmpty())
+                    renderCustomSection()
+                }
+                .setNegativeButton("Cancel", null)
+                .setOnDismissListener { stopSoundPreview() }
+                .show()
         }
     }
 
@@ -134,10 +144,9 @@ class ConversationDetailsActivity : SimpleActivity() {
     }
 
     private fun dp(n:Int)=(n*resources.displayMetrics.density+.5f).toInt()
-    /** The stock Android ringtone picker automatically auditions selections.
-     * This picker deliberately does not: only the explicit preview control
-     * starts playback, including for an audio file chosen from storage. */
+    /** Preview each selected tone, but persist nothing until Save is pressed. */
     private fun showQuietSoundPicker() {
+        stopSoundPreview()
         val manager = RingtoneManager(this).apply { setType(RingtoneManager.TYPE_NOTIFICATION) }
         val titles = mutableListOf("System default", "Silent")
         val uris = mutableListOf("default", "")
@@ -149,16 +158,25 @@ class ConversationDetailsActivity : SimpleActivity() {
                 titles.add(cursor.getString(RingtoneManager.TITLE_COLUMN_INDEX) ?: "Notification tone")
                 uris.add(uri.toString())
             }
+            cursor.close()
         } catch (_: Exception) {
-            // The built-in choices and document picker remain usable.
+            // System default, silent and document picker remain usable.
         }
-        titles.add("Choose audio file...")
-        AlertDialog.Builder(this)
+        var selection = uris.indexOf(ConversationCustomization.sound(this, threadId))
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Sound for this conversation")
-            .setItems(titles.toTypedArray()) { _, selection ->
-                if (selection == uris.size) {
-                    audioDocumentPicker.launch(arrayOf("audio/*"))
-                } else {
+            .setSingleChoiceItems(titles.toTypedArray(), selection) { _, which ->
+                selection = which
+                stopSoundPreview()
+                if (uris[which].isNotEmpty()) {
+                    val uri = if (uris[which] == "default")
+                        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    else Uri.parse(uris[which])
+                    if (uri != null) toggleSoundPreview(uri)
+                }
+            }
+            .setPositiveButton("Save") { _, _ ->
+                if (selection >= 0) {
                     stopSoundPreview()
                     ConversationCustomization.setSound(this, threadId, uris[selection],
                         conversation?.title.orEmpty())
@@ -166,7 +184,12 @@ class ConversationDetailsActivity : SimpleActivity() {
                 }
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .setNeutralButton("Audio file…") { _, _ ->
+                audioDocumentPicker.launch(arrayOf("audio/*"))
+            }
+            .setOnDismissListener { stopSoundPreview() }
+            .create()
+        dialog.show()
     }
 
     override fun onPause() {
@@ -182,8 +205,8 @@ class ConversationDetailsActivity : SimpleActivity() {
         soundPreviewButton?.text = "Play selected sound"
     }
 
-    private fun toggleSoundPreview() {
-        val uri = ConversationCustomization.soundUri(this, threadId) ?: return
+    private fun toggleSoundPreview(uri: Uri? = ConversationCustomization.soundUri(this, threadId)) {
+        if (uri == null) return
         val key = uri.toString()
         val existing = soundPreview
         if (existing != null && soundPreviewUri == key) {

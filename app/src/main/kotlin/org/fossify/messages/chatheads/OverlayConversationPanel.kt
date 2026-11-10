@@ -18,6 +18,8 @@ import kotlin.math.sin
 import android.graphics.Paint
 import android.graphics.Path
 import android.net.Uri
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.widget.ImageView
 import com.bumptech.glide.Glide
 import org.fossify.messages.extensions.messagesDB
@@ -134,6 +136,9 @@ class OverlayConversationPanel(
     private var pendingScrollAlignment: ViewTreeObserver.OnPreDrawListener? = null
     private var scrollToBottomAfterSend = false
     private var lastSendRequestAt = 0L
+    private var activeAudio: MediaPlayer? = null
+    private var activeAudioUri: Uri? = null
+    private var activeAudioButton: TextView? = null
     private val input = EditText(host).apply {
         hint = "Message"
         textSize = 16f
@@ -532,7 +537,7 @@ class OverlayConversationPanel(
             .setInterpolator(android.view.animation.OvershootInterpolator(.42f)).start()
     }
 
-    private data class Media(val uri: Uri, val mime: String)
+    private data class Media(val uri: Uri, val mime: String, val filename: String)
     private data class SmsRow(
         val text: String,
         val sent: Boolean,
@@ -609,7 +614,7 @@ class OverlayConversationPanel(
             for(msg in providerMms) {
                 if(!msg.isMMS || !representedMms.add(msg.id)) continue
                 val media=msg.attachment?.attachments.orEmpty().map {
-                    Media(it.getUri(),it.mimetype)
+                    Media(it.getUri(),it.mimetype,it.filename)
                 }
                 rows.add(SmsRow(msg.body,!msg.isReceivedMessage(),
                     msg.millis(),media,true,msg.id,msg.isMmsDownloadPending,
@@ -621,7 +626,7 @@ class OverlayConversationPanel(
                     if (!msg.isMMS && providerHasSms) continue
                     if (msg.isMMS && !representedMms.add(msg.id)) continue
                     val media=msg.attachment?.attachments.orEmpty().map {
-                        Media(it.getUri(),it.mimetype)
+                        Media(it.getUri(),it.mimetype,it.filename)
                     }
                     rows.add(SmsRow(msg.body,!msg.isReceivedMessage(),
                         msg.millis(),media,msg.isMMS,
@@ -707,11 +712,84 @@ class OverlayConversationPanel(
 
     private fun scrollToNewestMessage() = alignScrollAfterLayout(0)
 
+    private fun openAttachment(media: Media, forceMime: String? = null) {
+        try {
+            host.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(media.uri, forceMime ?: media.mime.ifBlank { "*/*" })
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
+        } catch (_: Exception) {
+            // The full conversation can still handle uncommon MMS part formats.
+            openFullConversation()
+        }
+    }
+
+    private fun stopAudioPreview() {
+        try { activeAudio?.stop() } catch (_: Exception) {}
+        try { activeAudio?.release() } catch (_: Exception) {}
+        activeAudio = null
+        activeAudioUri = null
+        activeAudioButton?.text = "▶  Play audio"
+        activeAudioButton = null
+    }
+
+    private fun toggleAudioPreview(media: Media, button: TextView) {
+        val current = activeAudio
+        if (current != null && activeAudioUri == media.uri) {
+            try {
+                if (current.isPlaying) {
+                    current.pause()
+                    button.text = "▶  Resume audio"
+                } else {
+                    current.start()
+                    button.text = "Ⅱ  Pause audio"
+                }
+            } catch (_: Exception) { stopAudioPreview() }
+            return
+        }
+        stopAudioPreview()
+        try {
+            val player = MediaPlayer()
+            activeAudio = player
+            activeAudioUri = media.uri
+            activeAudioButton = button
+            button.text = "Loading audio…"
+            player.setAudioAttributes(AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+            player.setDataSource(host, media.uri)
+            player.setOnPreparedListener {
+                if (activeAudio === it && isAttachedToWindow) {
+                    it.start()
+                    button.text = "Ⅱ  Pause audio"
+                }
+            }
+            player.setOnCompletionListener {
+                if (activeAudio === it) {
+                    it.seekTo(0)
+                    button.text = "▶  Play audio"
+                }
+            }
+            player.setOnErrorListener { _, _, _ ->
+                stopAudioPreview()
+                button.text = "Audio unavailable · Tap to open"
+                button.setOnClickListener { openAttachment(media) }
+                true
+            }
+            player.prepareAsync()
+        } catch (_: Exception) {
+            stopAudioPreview()
+            button.text = "Audio unavailable · Tap to open"
+            button.setOnClickListener { openAttachment(media) }
+        }
+    }
+
     private fun render(
         rows: List<SmsRow>,
         animateLast: Boolean = false,
         targetBottomGap: Int = 0
     ) {
+        stopAudioPreview()
         messages.removeAllViews()
         if (rows.isEmpty()) {
             messages.addView(label("No messages to display yet. Try reopening this conversation.", 14f, false))
@@ -742,26 +820,80 @@ class OverlayConversationPanel(
                 setTextColor(if (row.sent || night()) Color.WHITE else 0xFF252525.toInt())
                 setTextIsSelectable(true)
             })
-            for (media in row.media.take(4)) {
-                if (media.mime.startsWith("image/")) {
-                    val thumb = ImageView(host).apply {
-                        scaleType = ImageView.ScaleType.CENTER_CROP
-                        contentDescription = "MMS image. Open full conversation."
-                        setOnClickListener { openFullConversation() }
+            for (media in row.media.take(8)) {
+                val mime = media.mime.lowercase()
+                val isCalendar = mime.contains("calendar") || mime.contains("ical") ||
+                    media.filename.endsWith(".ics", ignoreCase = true) ||
+                    media.filename.endsWith(".vcs", ignoreCase = true)
+                val foreground = if (row.sent || night()) Color.WHITE else Color.DKGRAY
+                when {
+                    mime.startsWith("image/") -> {
+                        val thumb = ImageView(host).apply {
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            contentDescription = "MMS image. Tap to open."
+                            setOnClickListener { openAttachment(media) }
+                        }
+                        holder.addView(thumb, LinearLayout.LayoutParams(dp(208), dp(155)).apply {
+                            topMargin = dp(5)
+                        })
+                        Glide.with(host.applicationContext).load(media.uri)
+                            .centerCrop().into(thumb)
                     }
-                    holder.addView(thumb, LinearLayout.LayoutParams(dp(208), dp(155)).apply {
-                        topMargin = dp(5)
-                    })
-                    Glide.with(host.applicationContext).load(media.uri)
-                        .centerCrop().into(thumb)
-                } else {
-                    holder.addView(TextView(host).apply {
-                        text = "Attachment · " + media.mime.ifBlank { "file" }
-                        textSize = 13f
-                        setTextColor(if (row.sent || night()) Color.WHITE else Color.DKGRAY)
-                        setPadding(0, dp(8), 0, dp(4))
-                        setOnClickListener { openFullConversation() }
-                    })
+                    mime.startsWith("video/") -> {
+                        val preview = FrameLayout(host).apply {
+                            contentDescription = "Play video attachment"
+                            setOnClickListener { openAttachment(media) }
+                        }
+                        val frame = ImageView(host).apply {
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            setBackgroundColor(0xFF242428.toInt())
+                        }
+                        preview.addView(frame, FrameLayout.LayoutParams(-1, -1))
+                        preview.addView(TextView(host).apply {
+                            text = "▶  Play video"
+                            textSize = 15f
+                            setTextColor(Color.WHITE)
+                            gravity = Gravity.CENTER
+                            setBackgroundColor(0x88000000.toInt())
+                        }, FrameLayout.LayoutParams(-1, dp(46), Gravity.BOTTOM))
+                        holder.addView(preview, LinearLayout.LayoutParams(dp(208), dp(155)).apply {
+                            topMargin = dp(6)
+                        })
+                        Glide.with(host.applicationContext).asBitmap()
+                            .load(media.uri).frame(0L).centerCrop().into(frame)
+                    }
+                    mime.startsWith("audio/") || mime == "application/ogg" -> {
+                        holder.addView(TextView(host).apply {
+                            text = "▶  Play audio"
+                            textSize = 14f
+                            setTextColor(foreground)
+                            setPadding(dp(9), dp(13), dp(9), dp(13))
+                            contentDescription = "Play or pause audio attachment"
+                            setOnClickListener { toggleAudioPreview(media, this) }
+                        }, LinearLayout.LayoutParams(-1, -2))
+                    }
+                    isCalendar -> {
+                        holder.addView(TextView(host).apply {
+                            text = "▣  Calendar event\n" +
+                                media.filename.ifBlank { "Tap to open invitation" }
+                            textSize = 14f
+                            setTextColor(foreground)
+                            setPadding(dp(10), dp(11), dp(10), dp(11))
+                            contentDescription = "Open calendar invitation"
+                            setOnClickListener { openAttachment(media, "text/calendar") }
+                        }, LinearLayout.LayoutParams(-1, -2))
+                    }
+                    else -> {
+                        holder.addView(TextView(host).apply {
+                            text = "📎  " + media.filename.ifBlank {
+                                "Attachment · " + media.mime.ifBlank { "file" }
+                            }
+                            textSize = 13f
+                            setTextColor(foreground)
+                            setPadding(0, dp(8), 0, dp(4))
+                            setOnClickListener { openAttachment(media) }
+                        })
+                    }
                 }
             }
             if (row.media.isEmpty() && row.text.isBlank() && row.mms) {
@@ -967,6 +1099,7 @@ class OverlayConversationPanel(
         genieAnimator?.cancel()
         genieAnimator = null
         releaseGenieSnapshot()
+        stopAudioPreview()
         refreshHandler.removeCallbacks(refreshTick)
         disposed = true
         queryVersion.incrementAndGet()
