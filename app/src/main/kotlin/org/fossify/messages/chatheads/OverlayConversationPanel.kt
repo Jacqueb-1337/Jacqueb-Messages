@@ -880,7 +880,7 @@ class OverlayConversationPanel(
                             setTextColor(foreground)
                             setPadding(dp(10), dp(11), dp(10), dp(11))
                             contentDescription = "Open calendar invitation"
-                            setOnClickListener { openAttachment(media, "text/calendar") }
+                            setOnClickListener { openAttachment(media) }
                         }, LinearLayout.LayoutParams(-1, -2))
                     }
                     else -> {
