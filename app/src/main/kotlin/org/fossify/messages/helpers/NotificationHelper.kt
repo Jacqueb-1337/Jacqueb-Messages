@@ -159,7 +159,8 @@ class NotificationHelper(private val context: Context) {
                 .build()
         }
 
-        val largeIcon = ConversationCustomization.photoBitmap(context,threadId)
+        val customIcon = ConversationCustomization.photoBitmap(context,threadId)
+        val largeIcon = customIcon ?: GroupAvatarArt.cached(threadId)
             ?: bitmap ?: if (sender != null) {
                 SimpleContactsHelper(context).getContactLetterIcon(sender)
             } else {
@@ -222,16 +223,48 @@ class NotificationHelper(private val context: Context) {
                 // importance HIGH. Never attach one to the no-popup channel.
                 if (!useNoBannerChannel) builder.setShortcutInfo(shortcut)
                 notificationManager.notify(notificationId, builder.build())
+                updateGroupAvatarWhenReady(notificationId, threadId, body, customIcon, builder)
                 if (useNoBannerChannel) playChatHeadAlert(notificationChannelId, alertOnlyOnce,threadId)
                 context.shortcutHelper.reportReceiveMessageUsage(threadId)
             }
         } else {
             if (!useNoBannerChannel) builder.setShortcutInfo(shortcut)
             notificationManager.notify(notificationId, builder.build())
+            updateGroupAvatarWhenReady(notificationId, threadId, body, customIcon, builder)
             if (useNoBannerChannel) playChatHeadAlert(notificationChannelId, alertOnlyOnce,threadId)
             ensureBackgroundThread {
                 context.shortcutHelper.reportReceiveMessageUsage(threadId)
             }
+        }
+    }
+
+    /**
+     * Android's notification and conversation-shortcut surfaces do not use
+     * the ImageView avatar drawn in the inbox. Populate their large icon
+     * separately, without doing Contacts/MMS queries on the UI thread.
+     */
+    private fun updateGroupAvatarWhenReady(
+        notificationId: Int,
+        threadId: Long,
+        body: String,
+        customIcon: Bitmap?,
+        builder: NotificationCompat.Builder
+    ) {
+        if (customIcon != null || GroupAvatarArt.cached(threadId) != null) return
+        GroupAvatarArt.load(context, threadId) { groupIcon ->
+            if (groupIcon == null || !ConversationCustomization.notificationsEnabled(context,threadId))
+                return@load
+            val active = notificationManager.activeNotifications
+                .firstOrNull { it.id == notificationId }?.notification ?: return@load
+            val messages = NotificationCompat.MessagingStyle
+                .extractMessagingStyleFromNotification(active)?.messages
+            // An older async avatar lookup must never replace a newer message.
+            if (messages?.lastOrNull()?.text?.toString()?.let { it != body } == true)
+                return@load
+            builder.setLargeIcon(groupIcon)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+            notificationManager.notify(notificationId, builder.build())
         }
     }
 

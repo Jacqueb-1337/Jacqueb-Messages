@@ -649,8 +649,17 @@ class FloatingChatHeadsService : Service() {
                 .centerCrop().into(image)
         } else {
             image.setImageBitmap(UiTheme.avatarBitmap(this, head.title, false))
-            loadContactAvatar(head.address, image, wrapper, bindingKey)
-            GroupAvatarArt.bind(this, head.id, image)
+            // Resolve whether this is a group first. Otherwise an async
+            // individual contact photo can overwrite the composed group icon.
+            GroupAvatarArt.load(this, head.id) { groupBitmap ->
+                if (wrapper.tag != bindingKey || image.parent == null) return@load
+                if (groupBitmap != null) {
+                    Glide.with(applicationContext).clear(image)
+                    image.setImageBitmap(groupBitmap)
+                } else {
+                    loadContactAvatar(head.address, image, wrapper, bindingKey)
+                }
+            }
         }
     }
 
@@ -736,7 +745,7 @@ class FloatingChatHeadsService : Service() {
             checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return
         if (avatarCache.containsKey(address)) {
             avatarCache[address]?.let {
-                if (wrapper.tag == bindingKey)
+                if (wrapper.tag == bindingKey && GroupAvatarArt.cached(image.getTag(R.id.group_avatar_thread_id) as? Long ?: -1L) == null)
                     Glide.with(applicationContext).load(Uri.parse(it)).circleCrop().into(image)
             }
             return
@@ -753,7 +762,8 @@ class FloatingChatHeadsService : Service() {
             val resolved = uri
             main.post {
                 avatarCache[address] = resolved
-                if (image.parent != null && resolved != null && wrapper.tag == bindingKey)
+                if (image.parent != null && resolved != null && wrapper.tag == bindingKey &&
+                    GroupAvatarArt.cached(image.getTag(R.id.group_avatar_thread_id) as? Long ?: -1L) == null)
                     Glide.with(applicationContext).load(Uri.parse(resolved)).circleCrop().into(image)
             }
         }.start()

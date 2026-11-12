@@ -69,8 +69,12 @@ class ShortcutHelper(private val context: Context) {
                 setIcon(persons[0].icon)
             } else {
                 val icon = if (conv.isGroupConversation) {
+                    val composite = if (isOnMainThread())
+                        GroupAvatarArt.cached(conv.threadId)
+                    else
+                        GroupAvatarArt.bitmapForThread(context, conv.threadId)
                     IconCompat.createWithAdaptiveBitmap(
-                        contactsHelper.getColoredGroupIcon(conv.title).toBitmap()
+                        composite ?: contactsHelper.getColoredGroupIcon(conv.title).toBitmap()
                     )
                 } else {
                     IconCompat.createWithAdaptiveBitmap(

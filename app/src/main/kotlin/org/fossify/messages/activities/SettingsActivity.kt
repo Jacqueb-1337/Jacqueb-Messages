@@ -530,7 +530,12 @@ class SettingsActivity : SimpleActivity() {
             startActivity(android.content.Intent(
                 this@SettingsActivity,
                 org.fossify.commons.activities.CustomizationActivity::class.java
-            ))
+            ).apply {
+                // Commons' standalone activity has no SimpleActivity overrides.
+                // It expects these extras when configuring launcher aliases.
+                putIntegerArrayListExtra("app_icon_ids", getAppIconIDs())
+                putExtra("app_launcher_name", getAppLauncherName())
+            })
         }
     }
 
